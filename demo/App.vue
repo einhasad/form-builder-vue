@@ -9,12 +9,12 @@ import RendererDisabled from './views/RendererDisabled.vue'
 import Composables from './views/Composables.vue'
 
 /* ── Public assets ──────────────────────────────────────────
- * Files under `public/` are copied verbatim to the build root
- * with the deploy base-path prefix. Using `import.meta.env.BASE_URL`
- * makes the URL resolve correctly both locally (`/`) and on GitHub
- * Pages (`/form-builder-vue/`).
+ * Files under `public/` are copied verbatim to the build root.
+ * `import.meta.env.BASE_URL` is a path like `/` (dev) or
+ * `/form-builder-vue/` (GH Pages); prefix directly — DON'T pass it
+ * to `new URL(path, base)` because the base there must be absolute.
  */
-const logomarkUrl = new URL('logomark.svg', import.meta.env.BASE_URL).toString()
+const logomarkUrl = `${import.meta.env.BASE_URL}logomark.svg`
 
 /* ── State ──────────────────────────────────────────────── */
 const searchQuery = ref('')
