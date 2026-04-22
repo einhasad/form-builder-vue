@@ -8,6 +8,14 @@ import RendererBasic from './views/RendererBasic.vue'
 import RendererDisabled from './views/RendererDisabled.vue'
 import Composables from './views/Composables.vue'
 
+/* ── Public assets ──────────────────────────────────────────
+ * Files under `public/` are copied verbatim to the build root
+ * with the deploy base-path prefix. Using `import.meta.env.BASE_URL`
+ * makes the URL resolve correctly both locally (`/`) and on GitHub
+ * Pages (`/form-builder-vue/`).
+ */
+const logomarkUrl = new URL('logomark.svg', import.meta.env.BASE_URL).toString()
+
 /* ── State ──────────────────────────────────────────────── */
 const searchQuery = ref('')
 const copied = ref(false)
@@ -453,7 +461,7 @@ onUnmounted(() => {
     <header class="hdr">
       <div class="hdr-inner">
         <a href="#" class="hdr-brand" @click.prevent>
-          <img src="/desing/assets/logomark.svg" width="22" height="22" alt="Formcraft" />
+          <img :src="logomarkUrl" width="22" height="22" alt="Formcraft" />
           <span class="hdr-brand-name">Formcraft</span>
           <span class="hdr-version">v0.1.0</span>
         </a>
@@ -859,7 +867,7 @@ onUnmounted(() => {
 <style>
 /* ================================================================
    Formcraft Docs — Styles
-   Uses tokens from /desing/colors_and_type.css (loaded in index.html)
+   Uses tokens from /demo/assets/colors_and_type.css (loaded in index.html)
    ================================================================ */
 
 /* ── Reset & Base ──────────────────────────────────────── */
