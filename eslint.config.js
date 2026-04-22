@@ -182,7 +182,7 @@ export default ts.config(
   {
     ignores: [
       'dist/**',
-      'formBuilder-master/**',
+      'demo-dist/**',
       'coverage/**',
       'demo/**',
       'e2e/**',

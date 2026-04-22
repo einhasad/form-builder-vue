@@ -171,8 +171,8 @@ const TOC_ITEMS = [
 
 const QUICKSTART_CODE = `<script setup lang="ts">
 import { ref } from 'vue'
-import { FormBuilder } from 'form-builder-vue'
-import type { FormDataField } from 'form-builder-vue'
+import { FormBuilder } from '@einhasad-vue/form-builder-vue'
+import type { FormDataField } from '@einhasad-vue/form-builder-vue'
 
 const formData = ref<FormDataField[]>([])
 
@@ -190,8 +190,8 @@ function onSave(payload: { formData: FormDataField[] }) {
 
 const RENDERER_CODE = `<script setup lang="ts">
 import { ref } from 'vue'
-import { FormRenderer } from 'form-builder-vue'
-import type { FormDataField, UserDataMap } from 'form-builder-vue'
+import { FormRenderer } from '@einhasad-vue/form-builder-vue'
+import type { FormDataField, UserDataMap } from '@einhasad-vue/form-builder-vue'
 
 const formData = ref<FormDataField[]>([ /* loaded from API */ ])
 const userData = ref<UserDataMap>({})
@@ -225,7 +225,7 @@ const OPTIONS_ROWS = [
   ['fieldRemoveWarn', 'boolean', 'false', 'Confirm dialog before field removal.'],
 ]
 
-const installCmd = 'npm install form-builder-vue'
+const installCmd = 'npm install @einhasad-vue/form-builder-vue'
 
 function copyText(text: string, id: string) {
   void navigator.clipboard?.writeText(text)
@@ -600,7 +600,7 @@ onUnmounted(() => {
             <section class="section" id="introduction">
               <h2 class="section-title">Introduction</h2>
               <p class="intro-lede">
-                Formcraft wraps <code>form-builder-vue</code> &mdash; a drag-and-drop form builder for Vue&nbsp;3.
+                Formcraft wraps <code>@einhasad-vue/form-builder-vue</code> &mdash; a drag-and-drop form builder for Vue&nbsp;3.
                 Drop it in, bind an array, save the JSON.
               </p>
               <p>
@@ -624,8 +624,8 @@ onUnmounted(() => {
             <section class="section" id="installation">
               <h2 class="section-title">Installation</h2>
               <div class="codeblock codeblock--compact">
-                <pre><code>npm install form-builder-vue</code></pre>
-                <button class="codeblock-copy" @click="copyText('npm install form-builder-vue', 'inst')">
+                <pre><code>npm install @einhasad-vue/form-builder-vue</code></pre>
+                <button class="codeblock-copy" @click="copyText('npm install @einhasad-vue/form-builder-vue', 'inst')">
                   {{ copiedBlock === 'inst' ? 'copied' : 'copy' }}
                 </button>
               </div>

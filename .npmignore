@@ -1,0 +1,71 @@
+# Safety net for `npm publish`.
+#
+# The primary allowlist is `"files": ["dist"]` in package.json — when that
+# field is present, npm ignores .npmignore. This file exists so that if
+# anyone ever deletes / widens the `files` field by mistake, the package
+# still won't ship source, tests, dev configs, or secrets.
+
+# ---- Source & tests (shipped as compiled output in dist/) ----
+src
+e2e
+*.test.ts
+*.test.tsx
+*.spec.ts
+
+# ---- Demo / example app ----
+demo
+index.html
+env.d.ts
+
+# ---- Build / dev configs ----
+vite.config.ts
+vitest.config.ts
+tsconfig.json
+tsconfig.build.json
+eslint.config.js
+eslint.config.mjs
+playwright.config.ts
+playwright.external.config.ts
+
+# ---- CI / repo infrastructure ----
+.github
+.gitignore
+.gitattributes
+.editorconfig
+
+# ---- Dev artifacts & caches ----
+node_modules
+coverage
+test-results
+playwright-report
+playwright/.cache
+.playwright-mcp
+*.tsbuildinfo
+*.log
+
+# ---- Editor / OS ----
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# ---- Claude Code / internal notes ----
+.claude
+desing
+
+# ---- Ad-hoc probes / sample payloads ----
+probe.mjs
+new.sh
+old.sh
+new.json
+old.json
+
+# ---- Lockfiles (consumers use their own) ----
+# Keep package-lock.json in the repo but don't publish it to npm.
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ---- Stray tsc leftovers ----
+src/**/*.d.ts
+src/**/*.d.ts.map

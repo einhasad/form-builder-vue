@@ -1,14 +1,23 @@
 {
-  "name": "form-builder-vue",
+  "name": "@einhasad-vue/form-builder-vue",
   "version": "0.1.0",
   "description": "Vue 3 form builder library — drag-and-drop form creation, no jQuery dependency",
   "keywords": [
     "vue",
     "vue3",
+    "vue-component",
     "form",
+    "forms",
     "form-builder",
+    "form-designer",
+    "form-generator",
+    "dynamic-form",
+    "schema-builder",
+    "json-schema-form",
     "drag-and-drop",
-    "form-designer"
+    "drag-drop",
+    "typescript",
+    "no-jquery"
   ],
   "homepage": "https://github.com/einhasad/form-builder-vue#readme",
   "bugs": "https://github.com/einhasad/form-builder-vue/issues",
@@ -40,8 +49,11 @@
     "access": "public"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --config vite.demo.config.ts",
     "build": "vite build",
+    "demo:dev": "vite --config vite.demo.config.ts",
+    "demo:build": "vite build --config vite.demo.config.ts",
+    "demo:preview": "vite preview --config vite.demo.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -56,6 +68,9 @@
   },
   "peerDependencies": {
     "vue": "^3.5.0"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
