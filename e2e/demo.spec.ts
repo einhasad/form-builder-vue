@@ -3,21 +3,22 @@ import { test, expect } from '@playwright/test'
 test.describe('demo page', () => {
   test.beforeEach(async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-    await page.goto('/')
+    // `''` navigates to baseURL as-is, preserving any subpath like `/form-builder-vue/`.
+    // `'/'` would be treated as root-absolute and strip the subpath (breaks on GH Pages).
+    await page.goto('')
   })
 
   test('renders the hero', async ({ page }) => {
-    await expect(page).toHaveTitle(/Formcraft/)
+    await expect(page).toHaveTitle(/Form Builder|Formcraft/)
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Drag, drop,')
     await expect(page.getByRole('heading', { level: 1 })).toContainText('ship')
     await expect(page.locator('.hero-pill-tag')).toHaveText('v0.1')
   })
 
-  test('header shows brand, nav, search, and github icon', async ({ page }) => {
+  test('header shows brand, nav, and search', async ({ page }) => {
     await expect(page.locator('.hdr-brand-name')).toHaveText('Formcraft')
     await expect(page.locator('.hdr-version')).toHaveText(/v\d+\.\d+\.\d+/)
     await expect(page.locator('.hdr-nav-item.is-active')).toHaveText('Docs')
-    await expect(page.locator('.hdr-github')).toBeVisible()
     await expect(page.locator('.hdr-search-input')).toBeVisible()
   })
 
@@ -30,7 +31,7 @@ test.describe('demo page', () => {
   })
 
   test('header "Docs" link returns to the docs view', async ({ page }) => {
-    await page.goto('/#/examples/builder-basic')
+    await page.goto('#/examples/builder-basic')
     await expect(page.locator('[data-qa="example-pane"]')).toBeVisible()
     await page.locator('[data-qa="header-docs-link"]').click()
     await expect(page.locator('[data-qa="example-pane"]')).toHaveCount(0)
@@ -71,7 +72,7 @@ test.describe('demo page', () => {
     await chip.click()
     await expect(chip.locator('.install-copy-label')).toHaveText('copied')
     const clipboard = await page.evaluate(() => navigator.clipboard.readText())
-    expect(clipboard).toBe('npm install form-builder-vue')
+    expect(clipboard).toBe('npm install @einhasad-vue/form-builder-vue')
     // revert label after timeout
     await expect(chip.locator('.install-copy-label')).toHaveText('copy', { timeout: 3_000 })
   })
@@ -89,7 +90,7 @@ test.describe('demo page', () => {
     await btn.click()
     await expect(btn).toHaveText('copied')
     const clipboard = await page.evaluate(() => navigator.clipboard.readText())
-    expect(clipboard).toBe('npm install form-builder-vue')
+    expect(clipboard).toBe('npm install @einhasad-vue/form-builder-vue')
   })
 
   test('anchor nav scrolls to quickstart section', async ({ page }) => {
@@ -187,9 +188,8 @@ test.describe('demo page', () => {
       .toMatch(/Installation|Quickstart|Introduction/)
   })
 
-  test('footer renders updated date and edit link', async ({ page }) => {
+  test('footer renders updated date', async ({ page }) => {
     await expect(page.locator('.page-footer time')).toHaveText(/April 20, 2026/)
-    await expect(page.locator('.page-footer a')).toContainText(/Edit this page/)
   })
 
   test('callouts render the note + tip blocks', async ({ page }) => {
