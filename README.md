@@ -162,6 +162,42 @@ import {
 } from '@einhasad-vue/form-builder-vue'
 ```
 
+## Provide / inject helpers
+
+The library shares configuration, state, field registry, and i18n with
+descendant components through `provide`/`inject`. The injection keys are
+module-private — consumers interact with them through paired helper
+functions. Use these when mounting child pieces (e.g. `BuilderStage`) inside
+custom wrappers, or when reading context from your own composables:
+
+```ts
+import {
+  provideBuilderOptions, useBuilderOptions,
+  provideBuilderState,   useBuilderState,
+  provideBuilderRegistry, useBuilderRegistry,
+  provideBuilderI18n,    useBuilderI18n,
+  type BuilderRegistryContext,
+  type BuilderI18nContext,
+} from '@einhasad-vue/form-builder-vue'
+```
+
+Each `use*()` returns `undefined` if nothing was provided upstream, so
+consumers can fall back cleanly.
+
+## Theming
+
+Scoped styles read their colors from CSS custom properties. Redefine them
+on `.form-builder` (or any ancestor) to retheme without overriding
+individual selectors. Key variables:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `--accent` | Primary accent — action buttons, focus rings | `#ffc833` |
+| `--fb-control-accent` | `accent-color` for checkbox/radio inputs and `.toggle` `:checked` background | `var(--accent, #ffc833)` |
+| `--surface`, `--surface-sunk` | Panel / stage backgrounds | `#fff`, `#f3f0e8` |
+| `--ink`, `--ink-2`, `--ink-3` | Primary / secondary / muted text | `#111`, `#3a3a3a`, `#6e6a63` |
+| `--line`, `--line-2` | Subtle / medium borders | `#e8e4db`, `#d3cec1` |
+
 ## Development
 
 ```bash

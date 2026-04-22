@@ -126,7 +126,7 @@ function onOtherInput(event: Event): void {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: var(--ink, #111);
+  accent-color: var(--fb-control-accent, var(--accent, #ffc833));
 }
 
 .other-option {

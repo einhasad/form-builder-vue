@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { inject, computed, type DefineComponent } from 'vue'
+import { computed, type DefineComponent } from 'vue'
 import type { FormDataField } from '../types/form-data'
-import { FIELD_REGISTRY_KEY } from '../types/injection-keys'
+import { useBuilderRegistry } from '../state/builderRegistry'
 
 /** The field definition. */
 const props = defineProps<{
@@ -18,7 +18,7 @@ const emit = defineEmits<{
   (e: 'change', payload: { fieldName: string; value: string[] }): void
 }>()
 
-const registry = inject(FIELD_REGISTRY_KEY)
+const registry = useBuilderRegistry()
 
 const controlComponent = computed<DefineComponent | undefined>(() => {
   if (!registry) {

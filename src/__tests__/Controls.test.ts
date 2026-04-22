@@ -930,13 +930,13 @@ describe('ControlSelect multiple', () => {
   })
 })
 
-describe('ControlButton style fallback', () => {
-  it('handles unknown style with fallback', () => {
+describe('ControlButton style passthrough', () => {
+  it('passes custom style values through to data-style so hosts can add their own themes', () => {
     const field: FormDataField = {
       type: FieldType.Button,
       label: 'Click',
       name: 'btn',
-      style: 'unknown-style',
+      style: 'accent',
       access: false,
     }
 
@@ -946,7 +946,22 @@ describe('ControlButton style fallback', () => {
 
     const btn = wrapper.find('[data-qa="control-button"]')
     expect(btn.classes()).toContain('fbv-btn')
-    expect(btn.attributes('data-style')).toBe('default')
+    expect(btn.attributes('data-style')).toBe('accent')
+  })
+
+  it('falls back to "default" when field.style is undefined', () => {
+    const field: FormDataField = {
+      type: FieldType.Button,
+      label: 'Click',
+      name: 'btn',
+      access: false,
+    }
+
+    const wrapper = mount(ControlButton, {
+      props: { field, modelValue: [] },
+    })
+
+    expect(wrapper.find('[data-qa="control-button"]').attributes('data-style')).toBe('default')
   })
 })
 

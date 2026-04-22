@@ -72,7 +72,7 @@ function onChange(event: Event): void {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: var(--ink, #111);
+  accent-color: var(--fb-control-accent, var(--accent, #ffc833));
 }
 
 .checkbox-single input[type="checkbox"].toggle {
@@ -103,7 +103,7 @@ function onChange(event: Event): void {
 }
 
 .checkbox-single input[type="checkbox"].toggle:checked {
-  background: var(--ink, #111);
+  background: var(--fb-control-accent, var(--accent, #ffc833));
 }
 
 .checkbox-single input[type="checkbox"].toggle:checked::before {

@@ -18,15 +18,12 @@ const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
 void props.modelValue
 void props.preview
 
-const ALLOWED_STYLES = new Set(['default', 'danger', 'info', 'primary', 'success', 'warning'])
-
 function onClick(): void {
   emit('update:modelValue', [props.field.value ?? 'clicked'])
 }
 
 function getStyle(): string {
-  const style = props.field.style ?? 'default'
-  return ALLOWED_STYLES.has(style) ? style : 'default'
+  return props.field.style ?? 'default'
 }
 
 function getButtonClass(): string {

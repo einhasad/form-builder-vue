@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { h, provide, defineComponent } from 'vue'
+import { h, defineComponent } from 'vue'
 import BuilderControlPanel from '../components/BuilderControlPanel.vue'
-import { FIELD_REGISTRY_KEY, I18N_KEY, BUILDER_OPTIONS_KEY } from '../types/injection-keys'
+import { provideBuilderOptions } from '../state/builderOptions'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import { provideBuilderI18n } from '../state/builderI18n'
 import { FieldType } from '../types/field-types'
 import type { ControlDefinition } from '../types/control-definition'
 import type { BuilderOptions } from '../types/builder-options'
@@ -64,9 +66,9 @@ function createWrapper(
 ): ReturnType<typeof mount> {
   const ParentComponent = defineComponent({
     setup() {
-      provide(FIELD_REGISTRY_KEY, providedRegistry ?? fullRegistry)
-      provide(I18N_KEY, providedI18n ?? { t: (key: string) => key })
-      provide(BUILDER_OPTIONS_KEY, providedOptions ?? defaultOptions)
+      provideBuilderRegistry(providedRegistry ?? fullRegistry)
+      provideBuilderI18n(providedI18n ?? { t: (key: string) => key })
+      provideBuilderOptions(providedOptions ?? defaultOptions)
     },
     render() {
       return h(BuilderControlPanel, { disabledTypes })
@@ -152,7 +154,7 @@ describe('BuilderControlPanel', () => {
   it('falls back to key when i18n is not provided', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           ...fullRegistry,
           getAllTypes: () => [FieldType.Text],
           getDefinition: () => ({
@@ -160,7 +162,7 @@ describe('BuilderControlPanel', () => {
             inactive: [], defaultAttrs: [], disabledAttrs: [], layout: 'default',
           }),
         })
-        provide(BUILDER_OPTIONS_KEY, defaultOptions)
+        provideBuilderOptions(defaultOptions)
       },
       render() {
         return h(BuilderControlPanel, { disabledTypes: [] })
@@ -183,12 +185,12 @@ describe('BuilderControlPanel', () => {
     }
   })
 
-  it('handles missing BUILDER_OPTIONS_KEY injection', () => {
+  it('handles missing BuilderOptions injection', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, fullRegistry)
-        provide(I18N_KEY, { t: (key: string) => key })
-        // Intentionally NOT providing BUILDER_OPTIONS_KEY
+        provideBuilderRegistry(fullRegistry)
+        provideBuilderI18n({ t: (key: string) => key })
+        // Intentionally NOT providing BuilderOptions
       },
       render() {
         return h(BuilderControlPanel, { disabledTypes: [] })

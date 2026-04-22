@@ -1,6 +1,6 @@
 {
   "name": "@einhasad-vue/form-builder-vue",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Vue 3 form builder library — drag-and-drop form creation, no jQuery dependency",
   "keywords": [
     "vue",

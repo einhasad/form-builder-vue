@@ -20,3 +20,14 @@ export { useFormRenderer } from './composables/useFormRenderer'
 export { useFieldRegistry } from './composables/useFieldRegistry'
 export { useDragDrop } from './composables/useDragDrop'
 export { useI18n } from './composables/useI18n'
+
+// Provide/inject helpers — paired `provide*()` and `use*()` functions that
+// encapsulate each injection key as a module-private symbol.
+export { provideBuilderOptions, useBuilderOptions } from './state/builderOptions'
+export { provideBuilderState, useBuilderState } from './state/builderState'
+export {
+  provideBuilderRegistry,
+  useBuilderRegistry,
+  type BuilderRegistryContext,
+} from './state/builderRegistry'
+export { provideBuilderI18n, useBuilderI18n, type BuilderI18nContext } from './state/builderI18n'

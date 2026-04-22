@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { inject, computed, type DefineComponent } from 'vue'
+import { computed, type DefineComponent } from 'vue'
 import type { FormDataField } from '../types/form-data'
-import { FIELD_REGISTRY_KEY, I18N_KEY } from '../types/injection-keys'
+import { useBuilderRegistry } from '../state/builderRegistry'
+import { useBuilderI18n } from '../state/builderI18n'
 import BuilderEditPanel from './BuilderEditPanel.vue'
 import BuilderIcon from './BuilderIcon.vue'
 
@@ -9,6 +10,13 @@ import BuilderIcon from './BuilderIcon.vue'
 const props = defineProps<{
   /** The field data. */
   field: FormDataField
+  /**
+   * Stable identity for this field used in outgoing events. Parent components
+   * (notably `BuilderStage`) pass the builder's `internalId` here so that
+   * actions continue to work for fields without a `name` attribute. Falls back
+   * to `field.name` when omitted to preserve backwards compatibility.
+   */
+  fieldId?: string
   /** Whether this field is selected. */
   isSelected: boolean
   /** Whether this field is in edit mode. */
@@ -23,8 +31,8 @@ const emit = defineEmits<{
   (e: 'dragstart' | 'dragend', payload: { fieldId: string; event: DragEvent }): void
 }>()
 
-const registry = inject(FIELD_REGISTRY_KEY)
-const i18n = inject(I18N_KEY)
+const registry = useBuilderRegistry()
+const i18n = useBuilderI18n()
 
 const controlComponent = computed<DefineComponent | undefined>(() => {
   if (!registry) {
@@ -48,33 +56,35 @@ function getTypeLabel(): string {
   return props.field.type
 }
 
+const resolvedFieldId = computed<string | undefined>(() => props.fieldId ?? props.field.name)
+
 function onRemove(): void {
-  if (props.field.name) {
-    emit('remove', { fieldId: props.field.name })
+  if (resolvedFieldId.value) {
+    emit('remove', { fieldId: resolvedFieldId.value })
   }
 }
 
 function onCopy(): void {
-  if (props.field.name) {
-    emit('copy', { fieldId: props.field.name })
+  if (resolvedFieldId.value) {
+    emit('copy', { fieldId: resolvedFieldId.value })
   }
 }
 
 function onEdit(): void {
-  if (props.field.name) {
-    emit('edit', { fieldId: props.field.name })
+  if (resolvedFieldId.value) {
+    emit('edit', { fieldId: resolvedFieldId.value })
   }
 }
 
 function onDragStart(event: DragEvent): void {
-  if (props.field.name) {
-    emit('dragstart', { fieldId: props.field.name, event })
+  if (resolvedFieldId.value) {
+    emit('dragstart', { fieldId: resolvedFieldId.value, event })
   }
 }
 
 function onDragEnd(event: DragEvent): void {
-  if (props.field.name) {
-    emit('dragend', { fieldId: props.field.name, event })
+  if (resolvedFieldId.value) {
+    emit('dragend', { fieldId: resolvedFieldId.value, event })
   }
 }
 

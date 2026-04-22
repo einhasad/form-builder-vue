@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { h, provide, defineComponent } from 'vue'
+import { h, defineComponent } from 'vue'
 import BuilderField from '../components/BuilderField.vue'
-import { FIELD_REGISTRY_KEY, I18N_KEY } from '../types/injection-keys'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import { provideBuilderI18n } from '../state/builderI18n'
 import { FieldType } from '../types/field-types'
 import type { FormDataField } from '../types/form-data'
 
@@ -18,7 +19,7 @@ describe('BuilderField', () => {
   it('renders unknown field type when no registry', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -39,7 +40,7 @@ describe('BuilderField', () => {
   it('renders with registry providing component', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => undefined,
           getAllTypes: () => [] as string[],
           getSubtypes: () => [] as string[],
@@ -47,7 +48,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -68,7 +69,7 @@ describe('BuilderField', () => {
   it('shows selected class when isSelected is true', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => undefined,
           getAllTypes: () => [] as string[],
           getSubtypes: () => [] as string[],
@@ -76,7 +77,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -95,7 +96,7 @@ describe('BuilderField', () => {
   it('shows edit-active class when isEditing is true', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => undefined,
           getAllTypes: () => [] as string[],
           getSubtypes: () => [] as string[],
@@ -103,7 +104,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -128,7 +129,7 @@ describe('BuilderField', () => {
 
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => undefined,
           getAllTypes: () => [] as string[],
           getSubtypes: () => [] as string[],
@@ -136,7 +137,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -164,7 +165,7 @@ describe('BuilderField', () => {
   it('uses i18n for type label', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => undefined,
           getAllTypes: () => [] as string[],
           getSubtypes: () => [] as string[],
@@ -172,7 +173,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => `[${key}]` })
+        provideBuilderI18n({ t: (key: string) => `[${key}]` })
       },
       render() {
         return h(BuilderField, {
@@ -191,7 +192,7 @@ describe('BuilderField', () => {
   it('renders the required marker when field.required is true', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => ({
             type: FieldType.Text,
             subtypes: [],
@@ -208,7 +209,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -228,7 +229,7 @@ describe('BuilderField', () => {
   it('does not render the required marker when field.required is false', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => ({
             type: FieldType.Text,
             subtypes: [],
@@ -245,7 +246,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -264,7 +265,7 @@ describe('BuilderField', () => {
   it('renders help icon and tooltip when field.description is set', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => ({
             type: FieldType.Text,
             subtypes: [],
@@ -281,7 +282,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {
@@ -302,7 +303,7 @@ describe('BuilderField', () => {
   it('omits help wrap when field.description is empty', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getDefinition: () => ({
             type: FieldType.Text,
             subtypes: [],
@@ -319,7 +320,7 @@ describe('BuilderField', () => {
           getDefaultAttrs: () => [] as string[],
           resolveComponent: () => undefined,
         })
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderI18n({ t: (key: string) => key })
       },
       render() {
         return h(BuilderField, {

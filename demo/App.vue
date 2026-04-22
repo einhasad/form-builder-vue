@@ -1283,13 +1283,13 @@ textarea.demo-input {
 
 .content-grid {
   display: grid;
-  grid-template-columns: 1fr 180px;
+  grid-template-columns: minmax(0, 1fr) 180px;
   gap: 40px;
 }
 
-.content-grid.is-wide { grid-template-columns: 1fr; gap: 0; }
+.content-grid.is-wide { grid-template-columns: minmax(0, 1fr); gap: 0; }
 
-.article { max-width: var(--max-prose); }
+.article { max-width: var(--max-prose); min-width: 0; }
 .article.is-wide { max-width: none; }
 
 .article p {

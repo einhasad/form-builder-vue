@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { provide, reactive, watch, onMounted } from 'vue'
+import { reactive, watch, onMounted } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import { FieldType } from '../types/field-types'
 import type { BuilderOptions } from '../types/builder-options'
 import type { BuilderState } from '../types/builder-state'
 import type { CustomFieldPreset } from '../types/common'
-import { BUILDER_OPTIONS_KEY, FIELD_REGISTRY_KEY, I18N_KEY, BUILDER_STATE_KEY } from '../types/injection-keys'
+import { provideBuilderOptions } from '../state/builderOptions'
+import { provideBuilderState } from '../state/builderState'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import { provideBuilderI18n } from '../state/builderI18n'
 import { useFormBuilder } from '../composables/useFormBuilder'
 import { useFieldRegistry } from '../composables/useFieldRegistry'
 import { useI18n } from '../composables/useI18n'
@@ -43,11 +46,15 @@ const dragDrop = useDragDrop()
 // Register all built-in controls
 registerBuiltinControls(registry.register)
 
-// Builder state for provide/inject
+// Builder state for provide/inject. Exposing `internalFields` lets descendants
+// (notably `BuilderStage`) identify fields by their stable `internalId` even
+// when `name` is missing — preloaded schemas often lack names and would
+// otherwise be unable to dispatch remove/copy/edit/select events.
 const builderState: BuilderState = {
   fields: builder.fields,
   selectedFieldId: builder.selectedFieldId,
   fieldIdCounter: builder.fieldIdCounter,
+  internalFields: builder.internalFields,
 }
 
 function buildOptions(raw: Partial<BuilderOptions>): BuilderOptions {
@@ -74,6 +81,7 @@ function buildOptions(raw: Partial<BuilderOptions>): BuilderOptions {
     typeUserAttrs: raw.typeUserAttrs ?? {},
     typeUserDisabledAttrs: raw.typeUserDisabledAttrs ?? {},
     typeUserEvents: raw.typeUserEvents ?? {},
+    buttonStyles: raw.buttonStyles ?? ['default', 'danger', 'info', 'primary', 'success', 'warning'],
   }
 }
 
@@ -90,8 +98,8 @@ watch(
 )
 
 // Provide to children
-provide(BUILDER_OPTIONS_KEY, resolvedOptions)
-provide(FIELD_REGISTRY_KEY, {
+provideBuilderOptions(resolvedOptions)
+provideBuilderRegistry({
   getDefinition: registry.getDefinition,
   getAllTypes: registry.getAllTypes,
   getSubtypes: registry.getSubtypes,
@@ -99,8 +107,8 @@ provide(FIELD_REGISTRY_KEY, {
   getDefaultAttrs: registry.getDefaultAttrs,
   resolveComponent: registry.resolveComponent,
 })
-provide(I18N_KEY, { t: i18n.t })
-provide(BUILDER_STATE_KEY, builderState)
+provideBuilderI18n({ t: i18n.t })
+provideBuilderState(builderState)
 
 // Sync external modelValue -> internal state
 watch(
@@ -193,8 +201,18 @@ function handleControlDragStart(payload: { type: string }): void {
   dragDrop.onControlDragStart(payload.type as FieldType, {} as DragEvent)
 }
 
+// `payload.fieldId` is the stable `internalId` surfaced by `BuilderStage`. For
+// backwards compat (e.g. external code still feeding in a `field.name`), fall
+// back to the name lookup when no internal match is found.
+function resolveInternalId(fieldId: string): string | undefined {
+  if (builder.getField(fieldId)) {
+    return fieldId
+  }
+  return builder.findFieldIdByName(fieldId)
+}
+
 function handleFieldRemoved(payload: { fieldId: string; field: FormDataField }): void {
-  const internalId = builder.findFieldIdByName(payload.fieldId)
+  const internalId = resolveInternalId(payload.fieldId)
   if (internalId) {
     builder.removeField(internalId)
   }
@@ -202,14 +220,14 @@ function handleFieldRemoved(payload: { fieldId: string; field: FormDataField }):
 }
 
 function handleFieldCopied(payload: { fieldId: string }): void {
-  const internalId = builder.findFieldIdByName(payload.fieldId)
+  const internalId = resolveInternalId(payload.fieldId)
   if (internalId) {
     builder.duplicateField(internalId)
   }
 }
 
 function handleFieldUpdated(payload: { fieldId: string; updates: Partial<FormDataField> }): void {
-  const internalId = builder.findFieldIdByName(payload.fieldId)
+  const internalId = resolveInternalId(payload.fieldId)
   if (internalId) {
     builder.updateField(internalId, payload.updates)
     const updatedField = builder.getField(internalId)

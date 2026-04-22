@@ -7,7 +7,7 @@ function generateFieldId(counter: number): string {
 }
 
 /** Internal wrapper that tracks each field with a transient ID. */
-interface InternalField {
+export interface InternalField {
   internalId: string
   field: FormDataField
 }

@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { inject, computed } from 'vue'
+import { computed } from 'vue'
 import type { FormDataField, FormValueOption } from '../types/form-data'
-import { FIELD_REGISTRY_KEY, I18N_KEY } from '../types/injection-keys'
+import { useBuilderOptions } from '../state/builderOptions'
+import { useBuilderRegistry } from '../state/builderRegistry'
+import { useBuilderI18n } from '../state/builderI18n'
 import { SUBTYPE_MAP } from '../types/field-types'
+
+const DEFAULT_BUTTON_STYLES = ['default', 'danger', 'info', 'primary', 'success', 'warning']
 
 /** The field to edit. */
 const props = defineProps<{
@@ -14,8 +18,13 @@ const props = defineProps<{
 
 const emit = defineEmits<(e: 'update:field', payload: { fieldId: string; updates: Partial<FormDataField> }) => void>()
 
-const registry = inject(FIELD_REGISTRY_KEY)
-const i18n = inject(I18N_KEY)
+const registry = useBuilderRegistry()
+const i18n = useBuilderI18n()
+const builderOptions = useBuilderOptions()
+
+const buttonStyles = computed<string[]>(() =>
+  builderOptions?.buttonStyles ?? DEFAULT_BUTTON_STYLES,
+)
 
 const attrs = computed<string[]>(() => {
   if (!registry) {
@@ -142,11 +151,11 @@ function getOptions(): FormValueOption[] {
             data-qa="attr-style-buttons"
           >
             <button
-              v-for="style in ['default', 'danger', 'info', 'primary', 'success', 'warning']"
+              v-for="style in buttonStyles"
               :key="style"
               type="button"
               class="style-btn"
-              :class="[`btn-${style as string}`, { active: props.field.style === style || (!props.field.style && style === 'default') }]"
+              :class="[`btn-${style}`, { active: props.field.style === style || (!props.field.style && style === buttonStyles[0]) }]"
               :data-qa="`style-btn-${style}`"
               @click="updateAttr('style', style)"
             >
@@ -244,20 +253,27 @@ function getOptions(): FormValueOption[] {
 .attr-label {
   font-size: 13px;
   font-weight: 500;
-  color: #555;
+  color: var(--ink-2, #555);
 }
 
 .edit-attr input[type="text"],
 .edit-attr select {
   padding: 6px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--line, #ccc);
   border-radius: 4px;
   font-size: 14px;
+  background: var(--surface, #fff);
+  color: var(--ink, #111);
 }
 
 .edit-attr input[type="checkbox"] {
   width: 18px;
   height: 18px;
+  accent-color: var(--fb-control-accent, var(--accent, #ffc833));
+}
+
+.options-editor input[type="checkbox"] {
+  accent-color: var(--fb-control-accent, var(--accent, #ffc833));
 }
 
 .style-buttons {
@@ -268,14 +284,16 @@ function getOptions(): FormValueOption[] {
 
 .style-btn {
   padding: 4px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--line, #ccc);
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  background: var(--surface, #fff);
+  color: var(--ink, #111);
 }
 
 .style-btn.active {
-  outline: 2px solid #1890ff;
+  outline: 2px solid var(--accent, #1890ff);
   outline-offset: 1px;
 }
 
@@ -295,24 +313,27 @@ function getOptions(): FormValueOption[] {
 .option-value-input {
   flex: 1;
   padding: 4px 6px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--line, #ccc);
   border-radius: 4px;
   font-size: 13px;
+  background: var(--surface, #fff);
+  color: var(--ink, #111);
 }
 
 .remove-option-btn {
   border: none;
   background: none;
   cursor: pointer;
-  color: #999;
+  color: var(--ink-3, #999);
   font-size: 14px;
 }
 
 .add-option-btn {
   padding: 4px 8px;
-  border: 1px dashed #ccc;
+  border: 1px dashed var(--line, #ccc);
   border-radius: 4px;
-  background: #fff;
+  background: var(--surface, #fff);
+  color: var(--ink, #111);
   cursor: pointer;
   font-size: 13px;
 }

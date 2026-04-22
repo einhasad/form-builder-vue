@@ -27,4 +27,11 @@ export interface BuilderOptions {
   typeUserAttrs: Record<string, Record<string, UserAttrDef>>
   typeUserDisabledAttrs: Record<string, string[]>
   typeUserEvents: Record<string, FieldEvents>
+  /**
+   * Style names rendered as buttons in the edit panel for the `style`
+   * attribute (Button field). Each name is set as `data-style` on the
+   * rendered button and as a `btn-<name>` class in the edit panel, so
+   * host apps can theme new styles with matching CSS rules.
+   */
+  buttonStyles: string[]
 }

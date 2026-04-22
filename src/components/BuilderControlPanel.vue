@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { inject, computed } from 'vue'
-import { FIELD_REGISTRY_KEY, I18N_KEY, BUILDER_OPTIONS_KEY } from '../types/injection-keys'
+import { computed } from 'vue'
+import { useBuilderOptions } from '../state/builderOptions'
+import { useBuilderRegistry } from '../state/builderRegistry'
+import { useBuilderI18n } from '../state/builderI18n'
 import type { ControlDefinition } from '../types/control-definition'
 import type { CustomFieldPreset } from '../types/common'
 import BuilderIcon from './BuilderIcon.vue'
@@ -16,9 +18,9 @@ const emit = defineEmits<(
   payload: { type: string; preset?: CustomFieldPreset },
 ) => void>()
 
-const registry = inject(FIELD_REGISTRY_KEY)
-const i18n = inject(I18N_KEY)
-const options = inject(BUILDER_OPTIONS_KEY)
+const registry = useBuilderRegistry()
+const i18n = useBuilderI18n()
+const options = useBuilderOptions()
 
 const controls = computed<ControlDefinition[]>(() => {
   if (!registry) {

@@ -559,6 +559,36 @@ describe('FormBuilder', () => {
     expect(wrapper.emitted('field-selected')).toBeTruthy()
   })
 
+  it('supports action buttons for preloaded fields that lack a name attribute', async () => {
+    // Persisted schemas often omit `name` on fields the author never touched.
+    // Action buttons must still work — previously the button handlers
+    // short-circuited on `!field.name` and actions silently no-oped.
+    const wrapper = mount(FormBuilder, {
+      props: {
+        modelValue: [
+          { type: FieldType.Text, label: 'No name' },
+          { type: FieldType.Text, label: 'Also no name' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    const removeBtns = wrapper.findAll('[data-qa="field-remove-btn"]')
+    expect(removeBtns).toHaveLength(2)
+
+    const firstRemoveBtn = removeBtns[0]
+    expect(firstRemoveBtn).toBeDefined()
+    if (!firstRemoveBtn) {
+      return
+    }
+    await firstRemoveBtn.trigger('click')
+    await flushPromises()
+
+    const model = getLastModelValue(wrapper)
+    expect(model).toHaveLength(1)
+    expect(model[0]?.label).toBe('Also no name')
+  })
+
   it('handles control drag start', async () => {
     const wrapper = mount(FormBuilder, {
       props: { modelValue: [] },

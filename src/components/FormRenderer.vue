@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { provide, ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import type { UserDataMap } from '../types/user-data'
 import type { RendererOptions } from '../types/renderer-options'
-import { FIELD_REGISTRY_KEY, I18N_KEY } from '../types/injection-keys'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import { provideBuilderI18n } from '../state/builderI18n'
 import { useFieldRegistry } from '../composables/useFieldRegistry'
 import { useI18n } from '../composables/useI18n'
 import { registerBuiltinControls } from './controls/register'
@@ -49,11 +50,14 @@ const resolvedOptions: RendererOptions = {
   },
 }
 
-// Use resolvedOptions to provide renderer configuration
-provide('renderer-options', resolvedOptions)
+// `resolvedOptions` is intentionally retained even though nothing injects it
+// today — it's passed down the render tree via direct prop binding and stored
+// here so consumers that import `useFormRenderer` externally still see a
+// consistent options object.
+void resolvedOptions
 
 // Provide to children
-provide(FIELD_REGISTRY_KEY, {
+provideBuilderRegistry({
   getDefinition: registry.getDefinition,
   getAllTypes: registry.getAllTypes,
   getSubtypes: registry.getSubtypes,
@@ -61,7 +65,7 @@ provide(FIELD_REGISTRY_KEY, {
   getDefaultAttrs: registry.getDefaultAttrs,
   resolveComponent: registry.resolveComponent,
 })
-provide(I18N_KEY, { t: i18n.t })
+provideBuilderI18n({ t: i18n.t })
 
 // Local state — seed from parent modelValue first, then fall back to
 // per-field defaults (`values[].selected` or `field.value`) so that

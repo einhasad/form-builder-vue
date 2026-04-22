@@ -1,9 +1,20 @@
 <script setup lang="ts">
-import { inject, ref, computed } from 'vue'
+import { ref, computed } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import type { CustomFieldPreset } from '../types/common'
-import { BUILDER_OPTIONS_KEY, BUILDER_STATE_KEY, FIELD_REGISTRY_KEY } from '../types/injection-keys'
+import { useBuilderOptions } from '../state/builderOptions'
+import { useBuilderState } from '../state/builderState'
+import { useBuilderRegistry } from '../state/builderRegistry'
 import BuilderField from './BuilderField.vue'
+
+/**
+ * Stable ID used when the builder composable has not published internalIds
+ * (e.g. `BuilderStage` mounted in isolation without the builder state). The
+ * `__auto_` prefix avoids colliding with real user field names.
+ */
+function synthId(index: number): string {
+  return `__auto_${String(index)}`
+}
 
 /** Maximum number of fields that may share a single inline row. */
 const MAX_ROW_SIZE = 3
@@ -27,11 +38,32 @@ const emit = defineEmits<{
   (e: 'control-dropped', payload: { type: string; index: number; rowId?: string; preset?: CustomFieldPreset }): void
 }>()
 
-const builderState = inject(BUILDER_STATE_KEY)
-const registry = inject(FIELD_REGISTRY_KEY)
-const options = inject(BUILDER_OPTIONS_KEY)
+const builderState = useBuilderState()
+const registry = useBuilderRegistry()
+const options = useBuilderOptions()
 
 void registry
+
+/**
+ * Parallel array of stable identifiers (one per field in `props.fields`).
+ * When the builder composable is connected, these come from its
+ * `internalFields` ref — which guarantees every field has an ID regardless of
+ * whether the author set a `name`. Otherwise we fall back to `field.name` and
+ * finally to a deterministic synthetic ID. This lets action buttons, drag
+ * sources, and selection all reference a real identity for every rendered
+ * field.
+ */
+const fieldIds = computed<string[]>(() => {
+  const internal = builderState?.internalFields?.value
+  return props.fields.map((field, index) => {
+    const fromInternal = internal?.[index]?.internalId
+    return fromInternal ?? field.name ?? synthId(index)
+  })
+})
+
+function fieldIdAt(index: number): string {
+  return fieldIds.value[index] ?? synthId(index)
+}
 
 function parseControlData(data: string): { type: string; preset?: CustomFieldPreset } | null {
   if (!data.startsWith('control:')) {
@@ -108,8 +140,20 @@ function resetDragState(): void {
   draggedFieldName.value = null
 }
 
+function findFieldIndexById(id: string): number {
+  const byId = fieldIds.value.findIndex((candidate) => candidate === id)
+  if (byId !== -1) {
+    return byId
+  }
+  // Fallback: allow callers (drag data, external hosts) to reference a field
+  // by its `name`. This keeps the old name-based contract working for any
+  // consumer that hasn't adopted internalId yet.
+  return props.fields.findIndex((field) => field.name === id)
+}
+
 function onFieldRemove(payload: { fieldId: string }): void {
-  const field = props.fields.find((f) => f.name === payload.fieldId)
+  const idx = findFieldIndexById(payload.fieldId)
+  const field = idx >= 0 ? props.fields[idx] : undefined
   if (field) {
     emit('field-removed', { fieldId: payload.fieldId, field })
   }
@@ -157,7 +201,8 @@ function onFieldDragEnd(payload: { fieldId: string; event: DragEvent }): void {
   const wasDroppedOutside = payload.event.dataTransfer?.dropEffect === 'none'
   resetDragState()
   if (wasDroppedOutside) {
-    const field = props.fields.find((f) => f.name === payload.fieldId)
+    const idx = findFieldIndexById(payload.fieldId)
+    const field = idx >= 0 ? props.fields[idx] : undefined
     if (field) {
       emit('field-removed', { fieldId: payload.fieldId, field })
     }
@@ -259,12 +304,14 @@ function onFieldDrop(index: number, event: DragEvent): void {
   const rowSize = rowMembersForIndex(index)
   const canJoinRow = rowSize < MAX_ROW_SIZE
 
+  const targetId = fieldIdAt(index)
+
   const parsed = parseControlData(data)
   if (parsed) {
     if (targetField && canJoinRow && (side === 'left' || side === 'right')) {
       const sharedRowId = targetField.rowId ?? makeRowId()
-      if (targetField.rowId === undefined && targetField.name) {
-        emit('field-updated', { fieldId: targetField.name, updates: { rowId: sharedRowId } })
+      if (targetField.rowId === undefined) {
+        emit('field-updated', { fieldId: targetId, updates: { rowId: sharedRowId } })
       }
       const insertIndex = side === 'left' ? index : index + 1
       emit('control-dropped', { type: parsed.type, index: insertIndex, rowId: sharedRowId, preset: parsed.preset })
@@ -273,14 +320,14 @@ function onFieldDrop(index: number, event: DragEvent): void {
     }
   } else if (data.startsWith('field:')) {
     const fromFieldId = data.replace('field:', '')
-    const fromIndex = props.fields.findIndex((f) => f.name === fromFieldId)
+    const fromIndex = findFieldIndexById(fromFieldId)
     if (fromIndex === -1) {
       return
     }
     if (targetField && canJoinRow && (side === 'left' || side === 'right') && fromIndex !== index) {
       const sharedRowId = targetField.rowId ?? makeRowId()
-      if (targetField.rowId === undefined && targetField.name) {
-        emit('field-updated', { fieldId: targetField.name, updates: { rowId: sharedRowId } })
+      if (targetField.rowId === undefined) {
+        emit('field-updated', { fieldId: targetId, updates: { rowId: sharedRowId } })
       }
       const rawToIndex = side === 'left' ? index : index + 1
       const toIndex = fromIndex < rawToIndex ? rawToIndex - 1 : rawToIndex
@@ -291,15 +338,16 @@ function onFieldDrop(index: number, event: DragEvent): void {
   }
 }
 
-function isFieldSelected(field: FormDataField): boolean {
+function isFieldSelectedAt(index: number): boolean {
+  const id = fieldIdAt(index)
   if (builderState) {
-    return builderState.selectedFieldId.value === field.name
+    return builderState.selectedFieldId.value === id
   }
-  return props.selectedFieldId === field.name
+  return props.selectedFieldId === id
 }
 
-function isFieldEditing(field: FormDataField): boolean {
-  return isFieldSelected(field)
+function isFieldEditingAt(index: number): boolean {
+  return isFieldSelectedAt(index)
 }
 </script>
 
@@ -345,13 +393,13 @@ function isFieldEditing(field: FormDataField): boolean {
     >
       <div
         v-for="entry in row.fields"
-        :key="entry.field.name ?? entry.index"
+        :key="fieldIdAt(entry.index)"
         class="stage-field-wrapper"
         :class="{
           'drop-before': dragOverIndex === entry.index && dragOverSide === 'above',
           'drop-left': dragOverIndex === entry.index && dragOverSide === 'left',
           'drop-right': dragOverIndex === entry.index && dragOverSide === 'right',
-          'is-dragging': draggedFieldName === entry.field.name,
+          'is-dragging': draggedFieldName === fieldIdAt(entry.index),
         }"
         data-qa="stage-field-wrapper"
         @dragover="onFieldDragOver(entry.index, $event)"
@@ -362,13 +410,14 @@ function isFieldEditing(field: FormDataField): boolean {
           name="field"
           :field="entry.field"
           :index="entry.index"
-          :is-selected="isFieldSelected(entry.field)"
-          :is-editing="isFieldEditing(entry.field)"
+          :is-selected="isFieldSelectedAt(entry.index)"
+          :is-editing="isFieldEditingAt(entry.index)"
         >
           <BuilderField
             :field="entry.field"
-            :is-selected="isFieldSelected(entry.field)"
-            :is-editing="isFieldEditing(entry.field)"
+            :field-id="fieldIdAt(entry.index)"
+            :is-selected="isFieldSelectedAt(entry.index)"
+            :is-editing="isFieldEditingAt(entry.index)"
             :disabled-attrs="props.disabledAttrs"
             @update:field="onFieldUpdate"
             @remove="onFieldRemove"

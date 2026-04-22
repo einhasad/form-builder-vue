@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { h, provide, ref, defineComponent } from 'vue'
+import { h, ref, defineComponent } from 'vue'
 import BuilderStage from '../components/BuilderStage.vue'
 import BuilderField from '../components/BuilderField.vue'
-import { BUILDER_STATE_KEY, FIELD_REGISTRY_KEY } from '../types/injection-keys'
+import { provideBuilderState } from '../state/builderState'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import type { BuilderState } from '../types/builder-state'
 import { FieldType } from '../types/field-types'
 import type { FormDataField } from '../types/form-data'
 
@@ -51,18 +53,18 @@ function createMockDataTransfer(): { dt: DataTransfer; store: Record<string, str
 function createWrapper(
   fields: FormDataField[] = [],
   selectedFieldId: string | null = null,
-  builderStateOverride?: Record<string, unknown>,
+  builderStateOverride?: BuilderState,
 ): ReturnType<typeof mount> {
   const selectedFieldIdRef = ref<string | null>(selectedFieldId)
 
   const ParentComponent = defineComponent({
     setup() {
-      provide(BUILDER_STATE_KEY, builderStateOverride ?? {
+      provideBuilderState(builderStateOverride ?? {
         fields: ref(fields),
         selectedFieldId: selectedFieldIdRef,
         fieldIdCounter: ref(0),
       })
-      provide(FIELD_REGISTRY_KEY, {
+      provideBuilderRegistry({
         getAllTypes: () => [] as string[],
         getDefinition: () => undefined,
         resolveComponent: () => undefined,
@@ -338,7 +340,7 @@ describe('BuilderStage', () => {
   it('isFieldSelected uses props when builderState is not available', () => {
     const ParentComponent = defineComponent({
       setup() {
-        provide(FIELD_REGISTRY_KEY, {
+        provideBuilderRegistry({
           getAllTypes: () => [] as string[],
           getDefinition: () => undefined,
           resolveComponent: () => undefined,

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { h, provide, defineComponent } from 'vue'
+import { h, defineComponent } from 'vue'
 import BuilderEditPanel from '../components/BuilderEditPanel.vue'
-import { FIELD_REGISTRY_KEY, I18N_KEY } from '../types/injection-keys'
+import { provideBuilderRegistry } from '../state/builderRegistry'
+import { provideBuilderI18n } from '../state/builderI18n'
 import { FieldType } from '../types/field-types'
 import type { FormDataField } from '../types/form-data'
 
@@ -31,8 +32,8 @@ function createWrapper(
   const ParentComponent = defineComponent({
     setup() {
       if (withRegistry) {
-        provide(FIELD_REGISTRY_KEY, fullRegistry)
-        provide(I18N_KEY, { t: (key: string) => key })
+        provideBuilderRegistry(fullRegistry)
+        provideBuilderI18n({ t: (key: string) => key })
       }
     },
     render() {
