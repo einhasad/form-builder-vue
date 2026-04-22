@@ -1,0 +1,46 @@
+node_modules
+dist
+coverage
+*.local
+*.tgz
+.npmrc
+
+# Build cache / temp TypeScript outputs (dist is the only intentional artifact)
+*.tsbuildinfo
+src/**/*.d.ts
+src/**/*.d.ts.map
+
+# Editor / env
+.vscode
+.idea
+.DS_Store
+
+# Claude Code session artifacts
+.claude
+
+# Playwright
+test-results
+playwright-report
+playwright/.cache
+.playwright-mcp
+
+# External-host E2E tests depend on localhost:8080 (elite-vehicle backend)
+# and hardcoded credentials — not useful in public CI or for npm consumers.
+e2e/external-*.spec.ts
+e2e/integration-external.spec.ts
+playwright.external.config.ts
+
+# Ad-hoc probes / sample payloads that should never ship
+probe.mjs
+new.sh
+old.sh
+new.json
+old.json
+
+# Internal design/research notes (not a public artifact; also the typo'd name
+# "desing" is kept as-is — if you rename to "design" make sure to update this).
+desing
+
+# Former upstream reference dir (deleted; kept here so a stray re-clone
+# won't reintroduce it).
+formBuilder-master

@@ -1,0 +1,78 @@
+{
+  "name": "form-builder-vue",
+  "version": "0.1.0",
+  "description": "Vue 3 form builder library — drag-and-drop form creation, no jQuery dependency",
+  "keywords": [
+    "vue",
+    "vue3",
+    "form",
+    "form-builder",
+    "drag-and-drop",
+    "form-designer"
+  ],
+  "homepage": "https://github.com/einhasad/form-builder-vue#readme",
+  "bugs": "https://github.com/einhasad/form-builder-vue/issues",
+  "license": "MIT",
+  "author": "Dmytro Popov",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/einhasad/form-builder-vue.git"
+  },
+  "type": "module",
+  "main": "./dist/form-builder-vue.umd.cjs",
+  "module": "./dist/form-builder-vue.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/form-builder-vue.js",
+      "require": "./dist/form-builder-vue.umd.cjs"
+    },
+    "./style.css": "./dist/form-builder-vue.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:external": "playwright test --config=playwright.external.config.ts",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.build.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vitest/coverage-v8": "^3.1.2",
+    "@vue/eslint-config-typescript": "^14.5.0",
+    "@vue/test-utils": "^2.4.6",
+    "eslint": "^9.24.0",
+    "eslint-plugin-vue": "^10.0.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^6.3.2",
+    "vite-plugin-dts": "^4.5.3",
+    "vitest": "^3.1.2",
+    "vue": "^3.5.13",
+    "vue-tsc": "^2.2.8"
+  }
+}
