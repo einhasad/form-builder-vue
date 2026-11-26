@@ -278,4 +278,41 @@ describe('BuilderControlPanel', () => {
     expect(control).toBe(FieldType.RadioGroup)
     expect(panel.emitted('control-drag-start')[0][0]).toMatchObject({ type: FieldType.RadioGroup })
   })
+
+  it('makes palette items keyboard-focusable buttons', () => {
+    const wrapper = createWrapper([], undefined, undefined, {
+      ...defaultOptions,
+      fields: [{ type: FieldType.Text, label: 'Preset' }],
+    })
+    const items = [
+      ...wrapper.findAll('[data-qa="control-item"]'),
+      ...wrapper.findAll('[data-qa="control-preset-item"]'),
+    ]
+    expect(items.length).toBe(4)
+    for (const item of items) {
+      expect(item.attributes('role')).toBe('button')
+      expect(item.attributes('tabindex')).toBe('0')
+    }
+  })
+
+  it.each(['Enter', ' '])('adds a control with the %j key', async (key) => {
+    const wrapper = createWrapper()
+    const panel = wrapper.findComponent(BuilderControlPanel)
+    await wrapper.find('[data-qa="control-item"]').trigger('keydown', { key })
+    expect(panel.emitted('control-click')?.[0]?.[0]).toEqual({ type: FieldType.Text })
+  })
+
+  it.each(['Enter', ' '])('adds a preset with the %j key', async (key) => {
+    const preset = { type: FieldType.Text, label: 'Preset' }
+    const wrapper = createWrapper([], undefined, undefined, { ...defaultOptions, fields: [preset] })
+    const panel = wrapper.findComponent(BuilderControlPanel)
+    await wrapper.find('[data-qa="control-preset-item"]').trigger('keydown', { key })
+    expect(panel.emitted('control-click')?.[0]?.[0]).toEqual({ type: FieldType.Text, preset })
+  })
+
+  it('ignores other keys on palette items', async () => {
+    const wrapper = createWrapper()
+    await wrapper.find('[data-qa="control-item"]').trigger('keydown', { key: 'a' })
+    expect(wrapper.findComponent(BuilderControlPanel).emitted('control-click')).toBeFalsy()
+  })
 })

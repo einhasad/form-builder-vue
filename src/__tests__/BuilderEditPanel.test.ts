@@ -4,8 +4,10 @@ import { h, defineComponent } from 'vue'
 import BuilderEditPanel from '../components/BuilderEditPanel.vue'
 import { provideBuilderRegistry } from '../state/builderRegistry'
 import { provideBuilderI18n } from '../state/builderI18n'
+import { provideBuilderOptions } from '../state/builderOptions'
 import { FieldType } from '../types/field-types'
 import type { FormDataField } from '../types/form-data'
+import type { BuilderOptions } from '../types/builder-options'
 
 const fullRegistry = {
   getDefaultAttrs: (type: string) => {
@@ -14,6 +16,9 @@ const fullRegistry = {
       [FieldType.Select]: ['required', 'label', 'description', 'placeholder', 'name', 'className', 'access', 'multiple', 'values'],
       [FieldType.Button]: ['label', 'subtype', 'style', 'className', 'name', 'value', 'access'],
       [FieldType.CheckboxGroup]: ['required', 'label', 'description', 'name', 'className', 'access', 'toggle', 'inline', 'other', 'values'],
+      [FieldType.RadioGroup]: ['required', 'label', 'description', 'name', 'className', 'access', 'inline', 'other', 'values'],
+      [FieldType.Autocomplete]: ['required', 'label', 'name', 'access', 'values'],
+      [FieldType.Header]: ['label', 'subtype', 'className', 'access'],
     }
     return map[type] ?? ['label']
   },
@@ -28,6 +33,7 @@ function createWrapper(
   field: FormDataField,
   disabledAttrs: string[] = [],
   withRegistry = true,
+  fieldId = 'internal-1',
 ): ReturnType<typeof mount> {
   const ParentComponent = defineComponent({
     setup() {
@@ -37,7 +43,7 @@ function createWrapper(
       }
     },
     render() {
-      return h(BuilderEditPanel, { field, disabledAttrs })
+      return h(BuilderEditPanel, { field, fieldId, disabledAttrs })
     },
   })
 
@@ -337,12 +343,12 @@ describe('BuilderEditPanel', () => {
     }
   })
 
-  it('emits update:field with empty fieldId when field has no name', async () => {
+  it('emits update:field keyed by the fieldId prop when field has no name', async () => {
     const wrapper = createWrapper({
       type: FieldType.Text,
       label: 'Name',
       access: false,
-    })
+    }, [], true, 'internal-7')
 
     const panel = wrapper.findComponent(BuilderEditPanel)
     const textInputs = wrapper.findAll('[data-qa="attr-text"]')
@@ -352,7 +358,7 @@ describe('BuilderEditPanel', () => {
         await input.setValue('New Value')
         const emitted = panel.emitted('update:field')
         const payload = emitted?.[0]?.[0] as { fieldId: string }
-        expect(payload.fieldId).toBe('')
+        expect(payload.fieldId).toBe('internal-7')
       }
     }
   })
@@ -414,5 +420,162 @@ describe('BuilderEditPanel', () => {
     const selectedCheckboxes = wrapper.findAll('[data-qa="option-selected"]')
     await selectedCheckboxes[1].setValue(false)
     expect(panel.emitted('update:field')).toBeTruthy()
+  })
+
+  function lastUpdates(wrapper: ReturnType<typeof mount>): Partial<FormDataField> {
+    const emitted = wrapper.findComponent(BuilderEditPanel).emitted('update:field') ?? []
+    const payload = emitted[emitted.length - 1]?.[0] as { fieldId: string; updates: Partial<FormDataField> } | undefined
+    return payload?.updates ?? {}
+  }
+
+  function lastValues(wrapper: ReturnType<typeof mount>): FormDataField['values'] {
+    return lastUpdates(wrapper).values
+  }
+
+  const threeOptions = (): NonNullable<FormDataField['values']> => [
+    { label: 'Option 1', value: 'option-1', selected: true },
+    { label: 'Option 2', value: 'option-2', selected: false },
+    { label: 'Option 3', value: 'option-3', selected: false },
+  ]
+
+  it('emits attribute edits keyed by internal fieldId even when names are duplicated', async () => {
+    const wrapper = createWrapper({ type: FieldType.Text, label: 'Dup', name: 'dup', access: false }, [], true, 'internal-42')
+    await wrapper.find('[data-qa="attr-text"]').setValue('x')
+    const emitted = wrapper.findComponent(BuilderEditPanel).emitted('update:field')
+    expect((emitted?.[0]?.[0] as { fieldId: string }).fieldId).toBe('internal-42')
+  })
+
+  it('edits a nameless header field through its fieldId', async () => {
+    const wrapper = createWrapper({ type: FieldType.Header, subtype: 'h1', label: 'Preset', access: false }, [], true, 'hdr-1')
+    await wrapper.find('[data-qa="attr-text"]').setValue('Renamed')
+    const emitted = wrapper.findComponent(BuilderEditPanel).emitted('update:field')
+    expect(emitted?.[0]?.[0]).toEqual({ fieldId: 'hdr-1', updates: { label: 'Renamed' } })
+  })
+
+  it('does not offer an empty Default subtype and never writes subtype ""', async () => {
+    const wrapper = createWrapper({ type: FieldType.Text, label: 'Name', name: 'n', access: false })
+    const select = wrapper.find('[data-qa="attr-select"]')
+    const optionValues = select.findAll('option').map((o) => o.attributes('value'))
+    expect(optionValues).not.toContain('')
+    expect((select.element as HTMLSelectElement).value).toBe('text')
+    await select.setValue('email')
+    expect(lastUpdates(wrapper)).toEqual({ subtype: 'email' })
+  })
+
+  it('shows the stored subtype as selected', () => {
+    const wrapper = createWrapper({ type: FieldType.Header, subtype: 'h3', label: 'H', access: false })
+    expect((wrapper.find('[data-qa="attr-select"]').element as HTMLSelectElement).value).toBe('h3')
+  })
+
+  it.each([
+    { type: FieldType.RadioGroup, multiple: undefined },
+    { type: FieldType.Select, multiple: false },
+    { type: FieldType.Autocomplete, multiple: undefined },
+  ])('keeps a single selected option for single-choice $type', async ({ type, multiple }) => {
+    const wrapper = createWrapper({ type, label: 'L', name: 'n', access: false, multiple, values: threeOptions() })
+    await wrapper.findAll('[data-qa="option-selected"]')[1]?.setValue(true)
+    expect(lastValues(wrapper)?.map((o) => o.selected)).toEqual([false, true, false])
+  })
+
+  it('allows several selected options for multiple select and checkbox group', async () => {
+    for (const field of [
+      { type: FieldType.Select, multiple: true },
+      { type: FieldType.CheckboxGroup },
+    ]) {
+      const wrapper = createWrapper({ ...field, label: 'L', name: 'n', access: false, values: threeOptions() })
+      await wrapper.findAll('[data-qa="option-selected"]')[2]?.setValue(true)
+      expect(lastValues(wrapper)?.map((o) => o.selected)).toEqual([true, false, true])
+    }
+  })
+
+  it('deselecting the only selected option of a single-choice field leaves none selected', async () => {
+    const wrapper = createWrapper({ type: FieldType.RadioGroup, label: 'L', name: 'n', access: false, values: threeOptions() })
+    await wrapper.findAll('[data-qa="option-selected"]')[0]?.setValue(false)
+    expect(lastValues(wrapper)?.map((o) => o.selected)).toEqual([false, false, false])
+  })
+
+  it('gives a new option a unique value after an option was removed', async () => {
+    const wrapper = createWrapper({
+      type: FieldType.Select,
+      label: 'L',
+      name: 'n',
+      access: false,
+      values: [
+        { label: 'Option 2', value: 'option-2', selected: false },
+        { label: 'Option 3', value: 'option-3', selected: false },
+      ],
+    })
+    await wrapper.find('[data-qa="add-option"]').trigger('click')
+    const values = lastValues(wrapper)?.map((o) => o.value)
+    expect(values).toEqual(['option-2', 'option-3', 'option-4'])
+    expect(lastValues(wrapper)?.[2]).toEqual({ label: 'Option 4', value: 'option-4', selected: false })
+  })
+
+  it('moves an option up and down', async () => {
+    const wrapper = createWrapper({ type: FieldType.Select, label: 'L', name: 'n', access: false, values: threeOptions() })
+    await wrapper.findAll('[data-qa="move-option-up"]')[1]?.trigger('click')
+    expect(lastValues(wrapper)?.map((o) => o.value)).toEqual(['option-2', 'option-1', 'option-3'])
+    await wrapper.findAll('[data-qa="move-option-down"]')[1]?.trigger('click')
+    expect(lastValues(wrapper)?.map((o) => o.value)).toEqual(['option-1', 'option-3', 'option-2'])
+  })
+
+  it('disables moving the first option up and the last option down', () => {
+    const wrapper = createWrapper({ type: FieldType.Select, label: 'L', name: 'n', access: false, values: threeOptions() })
+    expect(wrapper.findAll('[data-qa="move-option-up"]')[0]?.attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('[data-qa="move-option-down"]')[2]?.attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('[data-qa="move-option-up"]')[1]?.attributes('disabled')).toBeUndefined()
+  })
+
+  it('every attr label for= points to an existing element and ids are unique per panel', () => {
+    const wrapper = mount(defineComponent({
+      setup() {
+        provideBuilderRegistry(fullRegistry)
+        provideBuilderI18n({ t: (key: string) => key })
+      },
+      render() {
+        return [
+          h(BuilderEditPanel, { field: { type: FieldType.Button, label: 'B', name: 'b', access: false }, fieldId: 'a', disabledAttrs: [] }),
+          h(BuilderEditPanel, { field: { type: FieldType.Select, label: 'S', name: 's', access: false, values: threeOptions() }, fieldId: 'b', disabledAttrs: [] }),
+          h(BuilderEditPanel, { field: { type: FieldType.Select, label: 'S', name: 's', access: false, values: threeOptions() }, fieldId: 'c', disabledAttrs: [] }),
+        ]
+      },
+    }), { attachTo: document.body })
+    const labels = wrapper.findAll('label[for]')
+    expect(labels.length).toBeGreaterThan(0)
+    for (const label of labels) {
+      expect(document.getElementById(label.attributes('for') ?? '')).not.toBeNull()
+    }
+    const ids = wrapper.findAll('[id]').map((el) => el.attributes('id'))
+    expect(new Set(ids).size).toBe(ids.length)
+    wrapper.unmount()
+  })
+
+  it('uses button styles from builder options', () => {
+    const wrapper = mount(defineComponent({
+      setup() {
+        provideBuilderRegistry(fullRegistry)
+        provideBuilderOptions({ buttonStyles: ['primary', 'link'] } as BuilderOptions)
+      },
+      render() {
+        return h(BuilderEditPanel, { field: { type: FieldType.Button, label: 'B', name: 'b', access: false }, fieldId: 'a', disabledAttrs: [] })
+      },
+    }))
+    expect(wrapper.find('[data-qa="style-btn-link"]').exists()).toBe(true)
+    expect(wrapper.find('[data-qa="style-btn-default"]').exists()).toBe(false)
+    expect(wrapper.find('[data-qa="style-btn-primary"]').classes()).toContain('active')
+  })
+
+  it('renders an empty subtype select for a type without subtypes', () => {
+    const wrapper = mount(defineComponent({
+      setup() {
+        provideBuilderRegistry({ ...fullRegistry, getDefaultAttrs: () => ['subtype'] })
+      },
+      render() {
+        return h(BuilderEditPanel, { field: { type: FieldType.CheckboxGroup, label: 'C', name: 'c', access: false }, fieldId: 'a', disabledAttrs: [] })
+      },
+    }))
+    const select = wrapper.find('[data-qa="attr-select"]')
+    expect(select.findAll('option')).toHaveLength(0)
+    expect((select.element as HTMLSelectElement).value).toBe('')
   })
 })

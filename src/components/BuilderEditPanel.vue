@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import type { FormDataField, FormValueOption } from '../types/form-data'
 import { useBuilderOptions } from '../state/builderOptions'
 import { useBuilderRegistry } from '../state/builderRegistry'
 import { useBuilderI18n } from '../state/builderI18n'
-import { SUBTYPE_MAP } from '../types/field-types'
+import { FieldType, SUBTYPE_MAP } from '../types/field-types'
 
 const DEFAULT_BUTTON_STYLES = ['default', 'danger', 'info', 'primary', 'success', 'warning']
+const BOOLEAN_ATTRS = new Set(['required', 'multiple', 'toggle', 'inline', 'other', 'access', 'requireValidOption'])
+const GROUP_ATTRS = new Set(['style', 'values'])
 
 /** The field to edit. */
 const props = defineProps<{
   /** The field to edit. */
   field: FormDataField
+  /** Stable builder identity of the field (its `internalId`), used as the `fieldId` of emitted updates. */
+  fieldId: string
   /** Attributes that should not be editable. */
   disabledAttrs: string[]
 }>()
@@ -21,6 +25,7 @@ const emit = defineEmits<(e: 'update:field', payload: { fieldId: string; updates
 const registry = useBuilderRegistry()
 const i18n = useBuilderI18n()
 const builderOptions = useBuilderOptions()
+const idPrefix = useId()
 
 const buttonStyles = computed<string[]>(() =>
   builderOptions?.buttonStyles ?? DEFAULT_BUTTON_STYLES,
@@ -37,6 +42,13 @@ const filteredAttrs = computed<string[]>(() => {
   return attrs.value.filter((attr) => !props.disabledAttrs.includes(attr))
 })
 
+const isSingleChoice = computed<boolean>(() => {
+  const { type } = props.field
+  return type === FieldType.RadioGroup
+    || type === FieldType.Autocomplete
+    || (type === FieldType.Select && props.field.multiple !== true)
+})
+
 function getLabel(key: string): string {
   if (i18n) {
     return i18n.t(key)
@@ -44,8 +56,16 @@ function getLabel(key: string): string {
   return key
 }
 
+function inputId(attr: string): string {
+  return `${idPrefix}-attr-${attr}`
+}
+
+function labelFor(attr: string): string | undefined {
+  return GROUP_ATTRS.has(attr) ? undefined : inputId(attr)
+}
+
 function updateAttr(attr: string, value: unknown): void {
-  emit('update:field', { fieldId: props.field.name ?? '', updates: { [attr]: value } })
+  emit('update:field', { fieldId: props.fieldId, updates: { [attr]: value } })
 }
 
 function updateOptionLabel(index: number, label: string): void {
@@ -63,15 +83,28 @@ function updateOptionValue(index: number, value: string): void {
 }
 
 function updateOptionSelected(index: number, selected: boolean): void {
-  const updated = getOptions().map((opt, i) =>
-    i === index ? { label: opt.label, value: opt.value, selected } : opt,
-  )
+  const exclusive = selected && isSingleChoice.value
+  const updated = getOptions().map((opt, i) => {
+    if (i === index) {
+      return { label: opt.label, value: opt.value, selected }
+    }
+    return exclusive ? { label: opt.label, value: opt.value, selected: false } : opt
+  })
   updateAttr('values', updated)
 }
 
+function nextOptionNumber(options: FormValueOption[]): number {
+  const taken = new Set(options.map((opt) => opt.value))
+  let next = options.length + 1
+  while (taken.has(`option-${String(next)}`)) {
+    next += 1
+  }
+  return next
+}
+
 function addOption(): void {
-  const options = [...(props.field.values ?? [])]
-  const count = String(options.length + 1)
+  const options = [...getOptions()]
+  const count = String(nextOptionNumber(options))
   options.push({ label: `Option ${count}`, value: `option-${count}`, selected: false })
   updateAttr('values', options)
 }
@@ -82,8 +115,18 @@ function removeOption(index: number): void {
   updateAttr('values', options)
 }
 
+function moveOption(index: number, offset: number): void {
+  const options = [...getOptions()]
+  options.splice(index + offset, 0, ...options.splice(index, 1))
+  updateAttr('values', options)
+}
+
 function getSubtypes(): string[] {
   return SUBTYPE_MAP[props.field.type]
+}
+
+function getSubtypeValue(): string {
+  return props.field.subtype ?? getSubtypes()[0] ?? ''
 }
 
 function getOptions(): FormValueOption[] {
@@ -105,7 +148,7 @@ function getOptions(): FormValueOption[] {
         data-qa="edit-attr"
       >
         <label
-          :for="`attr-${attr}`"
+          :for="labelFor(attr)"
           class="attr-label"
           data-qa="attr-label"
         >
@@ -113,9 +156,9 @@ function getOptions(): FormValueOption[] {
         </label>
 
         <!-- Boolean attributes -->
-        <template v-if="attr === 'required' || attr === 'multiple' || attr === 'toggle' || attr === 'inline' || attr === 'other' || attr === 'access' || attr === 'requireValidOption'">
+        <template v-if="BOOLEAN_ATTRS.has(attr)">
           <input
-            :id="`attr-${attr}`"
+            :id="inputId(attr)"
             type="checkbox"
             :checked="Boolean(props.field[attr as keyof FormDataField])"
             data-qa="attr-checkbox"
@@ -126,14 +169,11 @@ function getOptions(): FormValueOption[] {
         <!-- Subtype select -->
         <template v-else-if="attr === 'subtype'">
           <select
-            :id="`attr-${attr}`"
-            :value="props.field.subtype ?? ''"
+            :id="inputId(attr)"
+            :value="getSubtypeValue()"
             data-qa="attr-select"
             @change="updateAttr('subtype', ($event.target as HTMLSelectElement).value)"
           >
-            <option value="">
-              Default
-            </option>
             <option
               v-for="subtype in getSubtypes()"
               :key="subtype"
@@ -179,6 +219,7 @@ function getOptions(): FormValueOption[] {
               <input
                 type="checkbox"
                 :checked="option.selected"
+                :aria-label="getLabel('selected')"
                 data-qa="option-selected"
                 @change="updateOptionSelected(idx, ($event.target as HTMLInputElement).checked)"
               >
@@ -198,7 +239,31 @@ function getOptions(): FormValueOption[] {
               >
               <button
                 type="button"
-                class="remove-option-btn"
+                class="option-icon-btn"
+                :aria-label="getLabel('moveUp')"
+                :title="getLabel('moveUp')"
+                :disabled="idx === 0"
+                data-qa="move-option-up"
+                @click="moveOption(idx, -1)"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                class="option-icon-btn"
+                :aria-label="getLabel('moveDown')"
+                :title="getLabel('moveDown')"
+                :disabled="idx === getOptions().length - 1"
+                data-qa="move-option-down"
+                @click="moveOption(idx, 1)"
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                class="option-icon-btn"
+                :aria-label="getLabel('removeOption')"
+                :title="getLabel('removeOption')"
                 data-qa="remove-option"
                 @click="removeOption(idx)"
               >
@@ -211,7 +276,7 @@ function getOptions(): FormValueOption[] {
               data-qa="add-option"
               @click="addOption"
             >
-              + Add Option
+              + {{ getLabel('addOption') }}
             </button>
           </div>
         </template>
@@ -219,7 +284,7 @@ function getOptions(): FormValueOption[] {
         <!-- Text attributes -->
         <template v-else>
           <input
-            :id="`attr-${attr}`"
+            :id="inputId(attr)"
             type="text"
             :value="String(props.field[attr as keyof FormDataField] ?? '')"
             data-qa="attr-text"
@@ -320,12 +385,17 @@ function getOptions(): FormValueOption[] {
   color: var(--ink, #111);
 }
 
-.remove-option-btn {
+.option-icon-btn {
   border: none;
   background: none;
   cursor: pointer;
-  color: var(--ink-3, #999);
+  color: var(--ink-3, #6e6a63);
   font-size: 14px;
+}
+
+.option-icon-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 
 .add-option-btn {

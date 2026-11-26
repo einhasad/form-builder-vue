@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type DefineComponent } from 'vue'
+import { computed, useId, type DefineComponent } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import { useBuilderRegistry } from '../state/builderRegistry'
 import { useBuilderI18n } from '../state/builderI18n'
@@ -33,6 +33,7 @@ const emit = defineEmits<{
 
 const registry = useBuilderRegistry()
 const i18n = useBuilderI18n()
+const helpTipId = `${useId()}-help`
 
 const controlComponent = computed<DefineComponent | undefined>(() => {
   if (!registry) {
@@ -49,12 +50,29 @@ const fieldLayout = computed<string>(() => {
   return def?.layout ?? 'default'
 })
 
-function getTypeLabel(): string {
+function translate(key: string): string {
   if (i18n) {
-    return i18n.t(props.field.type)
+    return i18n.t(key)
   }
-  return props.field.type
+  return key
 }
+
+function getTypeLabel(): string {
+  return translate(props.field.type)
+}
+
+const previewValue = computed<string[]>(() =>
+  (props.field.values ?? []).filter((option) => option.selected).map((option) => option.value),
+)
+
+function hasText(text: string | undefined): boolean {
+  return text !== undefined && text !== ''
+}
+
+const showPreviewLabel = computed<boolean>(() =>
+  fieldLayout.value === 'default'
+  && (hasText(props.field.label) || props.field.required === true || hasText(props.field.description)),
+)
 
 const resolvedFieldId = computed<string | undefined>(() => props.fieldId ?? props.field.name)
 
@@ -98,13 +116,14 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
   <div
     class="builder-field"
     :class="{ selected: props.isSelected }"
-    draggable="true"
+    :draggable="!props.isEditing"
     data-qa="builder-field"
     @dragstart="onDragStart"
     @dragend="onDragEnd"
   >
     <div
       class="field-header"
+      :draggable="props.isEditing || undefined"
       data-qa="field-header"
     >
       <span class="field-type-label">
@@ -120,7 +139,9 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
           type="button"
           class="field-action-btn"
           :class="{ 'field-edit-active': props.isEditing }"
-          :title="getTypeLabel()"
+          :title="translate('editField')"
+          :aria-label="translate('editField')"
+          :aria-pressed="props.isEditing"
           data-qa="field-edit-btn"
           @click="onEdit"
         >
@@ -129,6 +150,8 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
         <button
           type="button"
           class="field-action-btn"
+          :title="translate('copyField')"
+          :aria-label="translate('copyField')"
           data-qa="field-copy-btn"
           @click="onCopy"
         >
@@ -137,6 +160,8 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
         <button
           type="button"
           class="field-action-btn field-remove-btn"
+          :title="translate('removeField')"
+          :aria-label="translate('removeField')"
           data-qa="field-remove-btn"
           @click="onRemove"
         >
@@ -150,7 +175,7 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
       data-qa="field-preview"
     >
       <label
-        v-if="fieldLayout === 'default' && props.field.label"
+        v-if="showPreviewLabel"
         class="preview-label"
         data-qa="preview-label"
       >
@@ -169,13 +194,14 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
           <button
             type="button"
             class="preview-help-icon"
-            :aria-label="props.field.description"
+            :aria-label="translate('description')"
+            :aria-describedby="helpTipId"
             data-qa="preview-help-icon"
-            tabindex="-1"
           >
             ?
           </button>
           <span
+            :id="helpTipId"
             class="preview-help-tip"
             role="tooltip"
             data-qa="preview-help-tip"
@@ -186,7 +212,7 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
         :is="controlComponent"
         v-if="controlComponent"
         :field="props.field"
-        :model-value="[]"
+        :model-value="previewValue"
         :preview="true"
       />
       <div
@@ -200,6 +226,7 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
     <BuilderEditPanel
       v-if="props.isEditing"
       :field="props.field"
+      :field-id="resolvedFieldId ?? ''"
       :disabled-attrs="props.disabledAttrs"
       @update:field="onUpdateField"
       @close="onEdit"
@@ -295,6 +322,8 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
 
 .preview-label {
   display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin-bottom: 4px;
   font-size: 13px;
   font-weight: 500;
@@ -302,7 +331,7 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
 }
 
 .preview-required {
-  color: #ff4d4f;
+  color: var(--danger, #d64545);
   margin-left: 2px;
 }
 
@@ -323,8 +352,8 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: #1e2329;
-  color: #fff;
+  background: var(--ink, #111);
+  color: var(--paper, #fbfaf7);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -340,8 +369,8 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
   max-width: 220px;
   min-width: 100px;
   padding: 6px 9px;
-  background: #1e2329;
-  color: #fff;
+  background: var(--ink, #111);
+  color: var(--paper, #fbfaf7);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.35;
@@ -360,7 +389,7 @@ function onUpdateField(payload: { fieldId: string; updates: Partial<FormDataFiel
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-bottom-color: #1e2329;
+  border-bottom-color: var(--ink, #111);
 }
 
 .preview-help-wrap:hover .preview-help-tip,

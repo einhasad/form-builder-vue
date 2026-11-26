@@ -87,9 +87,13 @@ function onPresetClick(preset: CustomFieldPreset): void {
         :key="control.type"
         class="control-item"
         draggable="true"
+        role="button"
+        tabindex="0"
         data-qa="control-item"
         @dragstart="onControlDragStart(control.type, $event)"
         @click="onControlClick(control.type)"
+        @keydown.enter.prevent="onControlClick(control.type)"
+        @keydown.space.prevent="onControlClick(control.type)"
       >
         <BuilderIcon
           class="control-icon"
@@ -103,9 +107,13 @@ function onPresetClick(preset: CustomFieldPreset): void {
         :key="`preset-${String(index)}`"
         class="control-item control-preset"
         draggable="true"
+        role="button"
+        tabindex="0"
         data-qa="control-preset-item"
         @dragstart="onPresetDragStart(index, preset, $event)"
         @click="onPresetClick(preset)"
+        @keydown.enter.prevent="onPresetClick(preset)"
+        @keydown.space.prevent="onPresetClick(preset)"
       >
         <BuilderIcon
           class="control-icon"
@@ -137,7 +145,8 @@ function onPresetClick(preset: CustomFieldPreset): void {
 
 .controls-list {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -145,7 +154,8 @@ function onPresetClick(preset: CustomFieldPreset): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1 1 150px;
+  width: auto;
   padding: 8px 12px;
   background: var(--paper, #fbfaf7);
   border: 1px solid var(--line, #e8e4db);
@@ -165,6 +175,11 @@ function onPresetClick(preset: CustomFieldPreset): void {
 }
 
 .control-item:active { cursor: grabbing; }
+
+.control-item:focus-visible {
+  outline: 2px solid var(--ink, #111);
+  outline-offset: 2px;
+}
 
 .control-icon {
   display: inline-flex;
