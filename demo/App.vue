@@ -10,6 +10,7 @@ import Composables from './views/Composables.vue'
 import Changelog from './views/Changelog.vue'
 import { FormBuilder, FormRenderer, FieldType } from '../src'
 import type { FormDataField, UserDataMap } from '../src'
+import changelogRaw from '../CHANGELOG.md?raw'
 
 /* ── Public assets ──────────────────────────────────────────
  * Files under `public/` are copied verbatim to the build root.
@@ -22,10 +23,29 @@ const logomarkUrl = `${import.meta.env.BASE_URL}logomark.svg`
 declare const __APP_VERSION__: string
 const appVersion = __APP_VERSION__
 const appVersionShort = `v${appVersion.split('.').slice(0, 2).join('.')}`
+const docsHref = import.meta.env.BASE_URL
+const GITHUB_URL = 'https://github.com/einhasad/form-builder-vue'
+const ISSUES_URL = `${GITHUB_URL}/issues`
+const LICENSE_URL = `${GITHUB_URL}/blob/main/LICENSE`
+const NPM_URL = 'https://www.npmjs.com/package/@einhasad-vue/form-builder-vue'
+
+function findReleaseDate(version: string): string | null {
+  const escaped = version.replace(/\./g, '\\.')
+  const match = new RegExp(`^## \\[${escaped}\\] - (\\d{4}-\\d{2}-\\d{2})`, 'm').exec(changelogRaw)
+  return match?.[1] ?? null
+}
+
+const releaseDate = findReleaseDate(appVersion)
+const releaseDateLabel = releaseDate
+  ? new Date(`${releaseDate}T00:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+  : null
 
 /* ── State ──────────────────────────────────────────────── */
 const searchQuery = ref('')
 const copiedBlock = ref('')
+const copyStatus = ref('')
+let copyResetTimer: number | undefined
+const mobileNavOpen = ref(false)
 const mounted = ref(false)
 const currentHash = ref<string>(typeof window === 'undefined' ? '' : window.location.hash)
 const activeScrollId = ref<string | null>(null)
@@ -37,6 +57,11 @@ const liveFormData = ref<FormDataField[]>([])
 const liveUserData = ref<UserDataMap>({})
 const liveTab = ref<LiveTab>('builder')
 const liveStopped = ref(false)
+const livePlaying = ref(false)
+const liveDemoRef = ref<HTMLElement | null>(null)
+let liveAutoPaused = false
+let liveDemoInView = false
+let liveDemoObserver: IntersectionObserver | null = null
 const liveTimers: number[] = []
 const liveGhosts = new Set<HTMLElement>()
 const liveAnimations = new Set<Animation>()
@@ -111,9 +136,9 @@ function clearLiveAnimations(): void {
 }
 
 function scheduleLive(delay: number, fn: () => void): void {
-  if (liveStopped.value) return
+  if (!livePlaying.value) return
   const id = window.setTimeout(() => {
-    if (liveStopped.value) return
+    if (!livePlaying.value) return
     fn()
   }, delay)
   liveTimers.push(id)
@@ -176,7 +201,7 @@ function moveCursor(toX: number, toY: number, duration: number, easing: string):
  *   4. release — field is appended, ghost fades, stage un-highlights (DROP_MS)
  */
 function flyAndAddField(step: ScriptStep): void {
-  if (liveStopped.value) return
+  if (!livePlaying.value) return
   const source = findControlChip(step.controlLabel)
   const stage = document.querySelector<HTMLElement>('[data-qa="live-pane-builder"] [data-qa="builder-stage"]')
   if (!source || !stage) {
@@ -233,7 +258,7 @@ function flyAndAddField(step: ScriptStep): void {
 
     // Phase 3: drag — cursor and ghost slide together to the drop point.
     const dragTimer = window.setTimeout(() => {
-      if (liveStopped.value) return
+      if (!livePlaying.value) return
       stage.classList.add('is-drop-target')
       moveCursor(tx + 6, ty + 6, DRAG_MS, 'cubic-bezier(0.4, 0.05, 0.55, 0.95)')
       const drag = ghost.animate(
@@ -251,7 +276,7 @@ function flyAndAddField(step: ScriptStep): void {
 
     // Phase 4: drop — append field, fade ghost, un-grab cursor, un-highlight stage.
     const dropTimer = window.setTimeout(() => {
-      if (liveStopped.value) {
+      if (!livePlaying.value) {
         ghost.remove()
         liveGhosts.delete(ghost)
         return
@@ -279,7 +304,7 @@ function flyAndAddField(step: ScriptStep): void {
 }
 
 function runLiveScript(): void {
-  if (liveStopped.value) return
+  if (!livePlaying.value) return
   const TAB_GAP = 2100
 
   scheduleLive(0, () => { liveTab.value = 'builder'; liveFormData.value = [] })
@@ -294,14 +319,78 @@ function runLiveScript(): void {
   elapsed += TAB_GAP
   scheduleLive(elapsed, () => { liveTab.value = 'json' })
   elapsed += TAB_GAP
-  scheduleLive(elapsed, () => { liveTab.value = 'builder' })
+  scheduleLive(elapsed, () => {
+    liveTab.value = 'builder'
+    livePlaying.value = false
+  })
 }
+
+function haltLive(): void {
+  livePlaying.value = false
+  clearLiveTimers()
+  clearLiveAnimations()
+}
+
+function playLive(): void {
+  haltLive()
+  liveStopped.value = false
+  liveAutoPaused = false
+  livePlaying.value = true
+  liveUserData.value = {}
+  runLiveScript()
+}
+
+function pauseLive(): void {
+  liveAutoPaused = false
+  haltLive()
+}
+
+function toggleLivePlayback(): void {
+  if (livePlaying.value) pauseLive()
+  else playLive()
+}
+
+function showLiveStaticFrame(): void {
+  liveTab.value = 'builder'
+  liveFormData.value = SCRIPT_STEPS.map((step) => step.field)
+}
+
+function autoPauseLive(): void {
+  if (!livePlaying.value) return
+  haltLive()
+  liveAutoPaused = true
+}
+
+function autoResumeLive(): void {
+  if (!liveAutoPaused || document.hidden || !liveDemoInView) return
+  playLive()
+}
+
+function onVisibilityChange(): void {
+  if (document.hidden) autoPauseLive()
+  else autoResumeLive()
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+watch(liveDemoRef, (el, previous) => {
+  if (!liveDemoObserver) return
+  if (previous) liveDemoObserver.unobserve(previous)
+  if (el) {
+    liveDemoObserver.observe(el)
+  } else {
+    liveDemoInView = false
+    autoPauseLive()
+  }
+})
 
 function onLiveDemoEnter(): void {
   if (liveStopped.value) return
   liveStopped.value = true
-  clearLiveTimers()
-  clearLiveAnimations()
+  liveAutoPaused = false
+  haltLive()
   liveTab.value = 'builder'
   liveFormData.value = []
   liveUserData.value = {}
@@ -311,8 +400,8 @@ function selectLiveTab(tab: LiveTab): void {
   // Manual click also halts the script (user took control).
   if (!liveStopped.value) {
     liveStopped.value = true
-    clearLiveTimers()
-    clearLiveAnimations()
+    liveAutoPaused = false
+    haltLive()
   }
   liveTab.value = tab
 }
@@ -349,8 +438,9 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: 'Form renderer',
     items: [
       { label: 'FormRenderer', target: '#/examples/renderer-basic' },
-      { label: 'RendererOptions', target: '#/examples/renderer-disabled' },
-      { label: 'v-model shape', target: '#form-renderer' },
+      { label: 'Disabled state', target: '#/examples/renderer-disabled' },
+      { label: 'RendererOptions', target: '#renderer-options' },
+      { label: 'v-model shape', target: '#renderer-v-model' },
     ],
   },
   {
@@ -365,9 +455,9 @@ const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: 'Reference',
     items: [
-      { label: 'FormDataField', target: '#formbuilder-props' },
-      { label: 'UserDataMap', target: '#form-renderer' },
-      { label: 'FieldType enum', target: '#field-types' },
+      { label: 'FormDataField', target: '#form-data-field' },
+      { label: 'UserDataMap', target: '#user-data-map' },
+      { label: 'FieldType enum', target: '#fieldtype-enum' },
       { label: 'Changelog', target: '#/changelog' },
     ],
   },
@@ -395,88 +485,97 @@ const activeExample = computed<ExampleRoute | null>(() => {
 })
 
 function isLinkActive(item: NavItem): boolean {
-  // Hash routes become "active" when the current hash matches exactly. When
-  // several sidebar items share a route (e.g. the composables) and disambiguate
-  // via `scrollTo`, the item whose `scrollTo` matches `activeScrollId` wins;
+  // An item is active when the current hash matches its target. When several
+  // sidebar items share a target (e.g. the composables) and disambiguate via
+  // `scrollTo`, the item whose `scrollTo` matches `activeScrollId` wins;
   // otherwise the first item in that group is active.
-  if (!item.target.startsWith('#/') || currentHash.value !== item.target) return false
-  const siblings: NavItem[] = []
-  for (const sec of NAV) {
-    for (const it of sec.items) {
-      if (it.target === item.target) siblings.push(it)
-    }
-  }
+  if (currentHash.value !== item.target) return false
+  const siblings = NAV.flatMap((sec) => sec.items).filter((it) => it.target === item.target)
   if (siblings.length <= 1) return true
   const matched = siblings.find((it) => it.scrollTo && it.scrollTo === activeScrollId.value)
   if (matched) return matched === item
   return siblings[0] === item
 }
 
-function onSidebarClick(item: NavItem, event: MouseEvent): void {
-  if (item.target.startsWith('#/')) {
-    event.preventDefault()
-    const sameRoute = window.location.hash === item.target
-    if (!sameRoute) {
-      window.location.hash = item.target
-    }
-    currentHash.value = item.target
-    activeScrollId.value = item.scrollTo ?? null
-    if (item.scrollTo) {
-      void nextTick(() => {
-        document.getElementById(item.scrollTo ?? '')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-      })
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-    return
-  }
-  // Docs anchor clicked while an example route is active: the article is
-  // `v-else`'d out, so the browser's native scroll-to-anchor lands on nothing.
-  // Render docs first, then scroll manually once Vue has mounted the target.
-  if (activeExample.value && item.target.length > 1 && item.target.startsWith('#')) {
-    event.preventDefault()
-    if (window.location.hash !== item.target) {
-      window.location.hash = item.target
-    }
-    currentHash.value = item.target
-    void nextTick(() => {
-      document.getElementById(item.target.slice(1))?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-    })
-    return
-  }
-  // Plain docs anchor click within the docs page — browser handles the jump,
-  // and the `html { scroll-behavior: smooth }` rule makes it animate.
+function scrollToElementAfterRender(id: string): void {
+  void nextTick(() => {
+    document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  })
 }
 
-function goToDocs(): void {
+// Docs sections are `v-else`'d out while an example route is active, so the
+// browser's native scroll-to-anchor would land on nothing. Render the target
+// view first, then scroll once Vue has mounted it.
+function navigateTo(target: string, scrollTo?: string): void {
+  mobileNavOpen.value = false
+  if (window.location.hash !== target) {
+    window.location.hash = target
+  }
+  currentHash.value = target
+  activeScrollId.value = scrollTo ?? null
+  if (scrollTo) {
+    scrollToElementAfterRender(scrollTo)
+  } else if (target.startsWith('#/')) {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } else {
+    scrollToElementAfterRender(target.slice(1))
+  }
+}
+
+function isModifiedClick(event: MouseEvent): boolean {
+  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+}
+
+function onSidebarClick(item: NavItem, event: MouseEvent): void {
+  if (isModifiedClick(event)) return
+  event.preventDefault()
+  navigateTo(item.target, item.scrollTo)
+}
+
+function goToDocs(event?: MouseEvent): void {
+  if (event && isModifiedClick(event)) return
+  event?.preventDefault()
+  mobileNavOpen.value = false
   currentHash.value = ''
+  activeScrollId.value = null
   if (window.location.hash) {
-    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+    history.pushState(null, '', `${window.location.pathname}${window.location.search}`)
   }
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+function skipToContent(): void {
+  const main = document.getElementById('main-content')
+  main?.focus({ preventScroll: true })
+  main?.scrollIntoView({ block: 'start' })
+}
+
+function toggleMobileNav(): void {
+  mobileNavOpen.value = !mobileNavOpen.value
+}
+
 const FIELD_TYPES = [
-  { id: 'text', label: 'Text', desc: 'Single-line text input' },
-  { id: 'number', label: 'Number', desc: 'Numeric input with min/max' },
-  { id: 'date', label: 'Date', desc: 'Date picker' },
-  { id: 'select', label: 'Select', desc: 'Dropdown with options' },
-  { id: 'checkbox-group', label: 'Checkbox Group', desc: 'Multi-select checkboxes' },
-  { id: 'radio-group', label: 'Radio Group', desc: 'Single-select radio buttons' },
-  { id: 'checkbox', label: 'Checkbox', desc: 'Boolean toggle' },
-  { id: 'textarea', label: 'Text Area', desc: 'Multi-line text input' },
-  { id: 'file', label: 'File Upload', desc: 'File attachment' },
   { id: 'autocomplete', label: 'Autocomplete', desc: 'Search + pick from list' },
   { id: 'button', label: 'Button', desc: 'Action trigger' },
+  { id: 'checkbox-group', label: 'Checkbox Group', desc: 'Multi-select checkboxes' },
+  { id: 'checkbox', label: 'Checkbox', desc: 'Boolean toggle' },
+  { id: 'date', label: 'Date Field', desc: 'Date picker' },
+  { id: 'file', label: 'File Upload', desc: 'File attachment' },
   { id: 'header', label: 'Header', desc: 'Section heading (h1-h6)' },
+  { id: 'hidden', label: 'Hidden Input', desc: 'Non-visible field value' },
+  { id: 'number', label: 'Number', desc: 'Numeric input with min/max' },
   { id: 'paragraph', label: 'Paragraph', desc: 'Static content block' },
-  { id: 'hidden', label: 'Hidden', desc: 'Non-visible field value' },
+  { id: 'radio-group', label: 'Radio Group', desc: 'Single-select radio buttons' },
+  { id: 'select', label: 'Select', desc: 'Dropdown with options' },
+  { id: 'text', label: 'Text Field', desc: 'Single-line text input' },
+  { id: 'textarea', label: 'Text Area', desc: 'Multi-line text input' },
 ]
 
 const QUICKSTART_CODE = `<script setup lang="ts">
 import { ref } from 'vue'
 import { FormBuilder } from '@einhasad-vue/form-builder-vue'
 import type { FormDataField } from '@einhasad-vue/form-builder-vue'
+import '@einhasad-vue/form-builder-vue/style.css'
 
 const formData = ref<FormDataField[]>([])
 
@@ -496,6 +595,7 @@ const RENDERER_CODE = `<script setup lang="ts">
 import { ref } from 'vue'
 import { FormRenderer } from '@einhasad-vue/form-builder-vue'
 import type { FormDataField, UserDataMap } from '@einhasad-vue/form-builder-vue'
+import '@einhasad-vue/form-builder-vue/style.css'
 
 const formData = ref<FormDataField[]>([ /* loaded from API */ ])
 const userData = ref<UserDataMap>({})
@@ -505,6 +605,47 @@ const userData = ref<UserDataMap>({})
   <FormRenderer :form-data="formData" v-model="userData" />
 </template>`
 
+const USER_DATA_SAMPLE = `{
+  "full-name": ["Ada Lovelace"],
+  "country": ["de"],
+  "interests": ["design", "engineering"]
+}`
+
+const FORM_DATA_FIELD_SAMPLE = `[
+  {
+    "type": "text",
+    "subtype": "text",
+    "required": false,
+    "label": "Text Field",
+    "className": "form-control",
+    "name": "text-1776563808602-0",
+    "access": false,
+    "value": ""
+  },
+  {
+    "type": "select",
+    "required": false,
+    "label": "Select",
+    "className": "form-control",
+    "name": "select-1776565631102-0",
+    "access": false,
+    "multiple": false,
+    "values": [
+      { "label": "Option 1", "value": "option-1", "selected": true },
+      { "label": "Option 2", "value": "option-2", "selected": false }
+    ]
+  },
+  { "type": "header", "subtype": "h1", "label": "Header", "access": false }
+]`
+
+const USER_DATA_MAP_TYPE = `type UserDataMap = Record<string, string[]>`
+
+const FIELD_TYPE_ENUM_CODE = `import { FieldType } from '@einhasad-vue/form-builder-vue'
+
+FieldType.Text      // 'text'
+FieldType.Select    // 'select'
+FieldType.Textarea  // 'textarea'`
+
 const PROPS_ROWS = [
   ['modelValue', 'FormDataField[]', '[]', 'Form fields bound via v-model.'],
   ['options', 'Partial<BuilderOptions>', '{}', 'Configuration overrides.'],
@@ -512,30 +653,115 @@ const PROPS_ROWS = [
 
 const EVENTS_ROWS = [
   ['update:modelValue', 'FormDataField[]', 'Fields changed.'],
-  ['field-added', '{ fieldId, field }', 'A field was added to the stage.'],
+  ['field-added', '{ fieldId, field }', 'A field was added to the stage (palette, drop or copy).'],
   ['field-removed', '{ fieldId, field }', 'A field was removed.'],
   ['field-updated', '{ fieldId, field }', 'A field attribute changed.'],
   ['field-moved', '{ fieldId, fromIndex, toIndex }', 'A field was reordered via drag.'],
-  ['save', '{ formData }', 'User clicked the save button.'],
+  ['field-selected', '{ fieldId: string | null }', 'A field was opened for editing (null when the edit panel closes).'],
+  ['save', '{ formData }', 'The save button was clicked or save() was called.'],
   ['clear', '\u2014', 'All fields were cleared.'],
+  ['loaded', '\u2014', 'The builder has mounted.'],
+]
+
+const METHODS_ROWS = [
+  ['getData()', 'FormDataField[]', 'Current form data.'],
+  ['setData(fields)', 'void', 'Replace all fields.'],
+  ['addField(field, index?)', 'string', 'Insert a field (appended when no index); returns its id.'],
+  ['removeField(fieldId)', 'boolean', 'Remove a field by id; false when not found.'],
+  ['clearFields()', 'void', 'Remove all fields.'],
+  ['save()', 'FormDataField[]', 'Emit save and return the current form data.'],
+  ['getFieldIds()', 'string[]', 'Field ids in stage order, for removeField / toggleFieldEdit.'],
+  ['getFieldTypes(activeOnly?)', 'string[]', 'Registered field types; activeOnly drops disableFields.'],
+  ['toggleFieldEdit(fieldId | null)', 'void', 'Open the edit panel for a field (null closes it).'],
+  ['closeAllFieldEdit()', 'void', 'Close the edit panel.'],
+  ['getCurrentFieldId()', 'string | null', 'Id of the field being edited.'],
+  ['setLocale(locale)', 'void', 'Switch the UI language.'],
 ]
 
 const OPTIONS_ROWS = [
-  ['controlPosition', "'left' | 'right'", "'left'", 'Which side the control panel sits on.'],
+  ['controlPosition', "'left' | 'right'", "'right'", 'Which side the control panel sits on.'],
+  ['controlOrder', 'FieldType[]', 'all types', 'Order of the controls in the panel.'],
   ['disableFields', 'FieldType[]', '[]', 'Field types to omit from the panel.'],
-  ['showActionButtons', 'boolean', 'true', 'Show Save / Clear action bar.'],
   ['disabledAttrs', 'string[]', '[]', 'Attributes to hide in edit panel.'],
+  ['showActionButtons', 'boolean', 'true', 'Show Save / Clear action bar.'],
   ['editOnAdd', 'boolean', 'false', 'Auto-open edit panel on field add.'],
-  ['fieldRemoveWarn', 'boolean', 'false', 'Confirm dialog before field removal.'],
+  ['fieldRemoveWarn', 'boolean', 'false', 'Ask for confirmation (window.confirm) before removing a field.'],
+  ['fields', 'CustomFieldPreset[]', '[]', 'Extra pre-configured controls in the panel.'],
+  ['buttonStyles', 'string[]', "['default', 'danger', 'info', 'primary', 'success', 'warning']", 'Style choices for Button fields.'],
 ]
 
-function copyText(text: string, id: string) {
-  void navigator.clipboard?.writeText(text)
-  copiedBlock.value = id
-  setTimeout(() => { copiedBlock.value = '' }, 1400)
+const OPTIONS_NOT_APPLIED = [
+  'defaultFields', 'disabledFieldButtons', 'disabledSubtypes', 'disableHTMLLabels', 'inputSets', 'roles',
+  'scrollToFieldOnAdd', 'sortableControls', 'actionButtons', 'disabledActionButtons', 'notify',
+  'typeUserAttrs', 'typeUserDisabledAttrs', 'typeUserEvents',
+]
+
+const THEME_ROWS = [
+  ['--accent', 'Primary accent: action buttons, focus rings', '#ffc833'],
+  ['--fb-control-accent', 'accent-color of checkbox/radio inputs and the :checked toggle background', 'var(--accent, #ffc833)'],
+  ['--fb-focus-ring', 'Focus outline color of renderer controls', 'var(--ink, #111)'],
+  ['--surface, --surface-sunk', 'Panel / stage backgrounds', '#fff, #f3f0e8'],
+  ['--ink, --ink-2, --ink-3', 'Primary / secondary / muted text', '#111, #3a3a3a, #6e6a63'],
+  ['--line, --line-2', 'Subtle / medium borders', '#e8e4db, #d3cec1'],
+]
+
+const VALIDATION_MESSAGE_ROWS = [
+  ['validationRequired', '{label} is required'],
+  ['validationMaxlength', '{label} must be at most {maxlength} characters'],
+  ['validationMin', '{label} must be at least {min}'],
+  ['validationMax', '{label} must be at most {max}'],
+]
+
+const RENDERER_PROPS_ROWS = [
+  ['formData', 'FormDataField[]', '[]', 'Field definitions to render.'],
+  ['modelValue', 'UserDataMap', '{}', 'User answers bound via v-model.'],
+  ['options', 'Partial<RendererOptions>', '{}', 'Configuration overrides.'],
+  ['disabled', 'boolean', 'false', 'Disable every input.'],
+]
+
+const RENDERER_EVENTS_ROWS = [
+  ['update:modelValue', 'UserDataMap', 'An answer changed.'],
+  ['change', '{ fieldName, value: string[] }', 'A single field value changed.'],
+  ['render', '\u2014', 'The form finished rendering.'],
+]
+
+const RENDERER_METHODS_ROWS = [
+  ['userData()', '{ name, userData: string[] }[]', 'Current answers as a list.'],
+  ['clear()', 'void', 'Reset all answers.'],
+  ['setData(formData)', 'void', 'Replace the rendered fields until the formData prop changes; answers of removed fields are dropped.'],
+  ['getElement(fieldName)', 'HTMLElement | undefined', 'The field\'s control element (wrapper div for groups and autocomplete); undefined for unknown names.'],
+  ['validate()', 'Record<string, string[]>', 'Check required, maxlength and number min/max; show errors under invalid fields and return them by field name ({} when valid). Messages use the i18n keys below.'],
+]
+
+const RENDERER_OPTIONS_ROWS = [
+  ['disableHTMLLabels', 'boolean', 'false', 'Not yet supported; labels always render as plain text.'],
+  ['notify', '{ error, success, warning }', 'no-op callbacks', 'Not yet supported.'],
+]
+
+async function copyText(text: string, id: string): Promise<void> {
+  window.clearTimeout(copyResetTimer)
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard API unavailable')
+    await navigator.clipboard.writeText(text)
+    copiedBlock.value = id
+    copyStatus.value = 'Copied to clipboard'
+  } catch {
+    copiedBlock.value = `${id}:failed`
+    copyStatus.value = 'Copy failed'
+  }
+  copyResetTimer = window.setTimeout(() => {
+    copiedBlock.value = ''
+    copyStatus.value = ''
+  }, 1400)
 }
 
-/* ── Search (Fuse.js via CDN, see index.html) ───────────── */
+function copyLabel(id: string): string {
+  if (copiedBlock.value === id) return 'copied'
+  if (copiedBlock.value === `${id}:failed`) return 'failed'
+  return 'copy'
+}
+
+/* ── Search (substring + Fuse.js loaded lazily from CDN) ── */
 interface FuseSearchResult<T> { item: T }
 interface FuseInstance<T> { search: (pattern: string) => FuseSearchResult<T>[] }
 interface FuseOptions<T> {
@@ -554,20 +780,61 @@ interface SearchItem {
   label: string
   section: string
   target: string
+  scrollTo?: string
+  content: string
 }
 
-const searchItems = computed<SearchItem[]>(() => {
-  const items: SearchItem[] = []
-  for (const sec of NAV) {
-    for (const it of sec.items) {
-      items.push({ label: it.label, section: sec.section, target: it.target })
-    }
+const SEARCH_RESULT_LIMIT = 10
+
+function rowsToSearchItems(rows: string[][], section: string, target: string): SearchItem[] {
+  return rows.map(([label = '', ...rest]) => ({ label, section, target, content: rest.join(' ') }))
+}
+
+const searchItems: SearchItem[] = [
+  ...NAV.flatMap((sec) => sec.items.map((it) => ({
+    label: it.label,
+    section: sec.section,
+    target: it.target,
+    scrollTo: it.scrollTo,
+    content: '',
+  }))),
+  ...FIELD_TYPES.map((ft) => ({
+    label: ft.label,
+    section: 'Field types',
+    target: `#field-type-${ft.id}`,
+    content: `${ft.id} ${ft.desc}`,
+  })),
+  ...rowsToSearchItems(PROPS_ROWS, 'FormBuilder props', '#formbuilder-props'),
+  ...rowsToSearchItems(EVENTS_ROWS, 'FormBuilder events', '#events'),
+  ...rowsToSearchItems(METHODS_ROWS, 'FormBuilder methods', '#formbuilder-methods'),
+  ...rowsToSearchItems(OPTIONS_ROWS, 'BuilderOptions', '#options'),
+  ...rowsToSearchItems(RENDERER_PROPS_ROWS, 'FormRenderer props', '#renderer-api'),
+  ...rowsToSearchItems(RENDERER_EVENTS_ROWS, 'FormRenderer events', '#renderer-api'),
+  ...rowsToSearchItems(RENDERER_METHODS_ROWS, 'FormRenderer methods', '#renderer-api'),
+  ...rowsToSearchItems(RENDERER_OPTIONS_ROWS, 'RendererOptions', '#renderer-options'),
+  ...rowsToSearchItems(THEME_ROWS, 'Theming', '#theming'),
+  ...rowsToSearchItems(VALIDATION_MESSAGE_ROWS, 'Validation messages', '#validation-messages'),
+  { label: 'npm install', section: 'Installation', target: '#installation', content: 'install npm peer dependency vue 3.5' },
+  { label: 'style.css', section: 'Quickstart', target: '#quickstart', content: 'css import stylesheet styles' },
+]
+
+function substringMatches(query: string): SearchItem[] {
+  const lc = query.toLowerCase()
+  const rank = (it: SearchItem): number => {
+    const label = it.label.toLowerCase()
+    if (label === lc) return 0
+    if (label.startsWith(lc)) return 1
+    if (label.includes(lc)) return 2
+    if (it.section.toLowerCase().includes(lc)) return 3
+    if (it.content.toLowerCase().includes(lc)) return 4
+    return -1
   }
-  for (const ft of FIELD_TYPES) {
-    items.push({ label: ft.label, section: 'Field types', target: '#field-types' })
-  }
-  return items
-})
+  return searchItems
+    .map((it) => ({ it, r: rank(it) }))
+    .filter(({ r }) => r >= 0)
+    .sort((a, b) => a.r - b.r)
+    .map(({ it }) => it)
+}
 
 const fuseIndex = shallowRef<FuseInstance<SearchItem> | null>(null)
 const searchFocused = ref(false)
@@ -577,21 +844,48 @@ const searchInputRef = ref<HTMLInputElement | null>(null)
 const searchResults = computed<SearchItem[]>(() => {
   const q = searchQuery.value.trim()
   if (!q) return []
-  if (fuseIndex.value) {
-    return fuseIndex.value.search(q).slice(0, 8).map((r) => r.item)
-  }
-  const lc = q.toLowerCase()
-  return searchItems.value
-    .filter((it) => it.label.toLowerCase().includes(lc) || it.section.toLowerCase().includes(lc))
-    .slice(0, 8)
+  const exact = substringMatches(q)
+  if (exact.length > 0 || !fuseIndex.value) return exact.slice(0, SEARCH_RESULT_LIMIT)
+  return fuseIndex.value.search(q).slice(0, SEARCH_RESULT_LIMIT).map((r) => r.item)
 })
 
-const showSearchDropdown = computed(() => searchFocused.value && searchResults.value.length > 0)
+const showSearchDropdown = computed(() => searchFocused.value && searchQuery.value.trim().length > 0)
 
 watch(searchResults, () => { searchHighlight.value = 0 })
 
+const FUSE_CDN_URL = 'https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js'
+let fuseRequested = false
+
+function buildFuseIndex(): void {
+  if (!window.Fuse || fuseIndex.value) return
+  fuseIndex.value = new window.Fuse(searchItems, {
+    keys: ['label', 'section', 'content'],
+    threshold: 0.25,
+    ignoreLocation: true,
+    minMatchCharLength: 2,
+  })
+}
+
+// Fuse only adds typo tolerance on top of the substring search, so it is
+// fetched on first search focus instead of blocking page load.
+function loadFuse(): void {
+  if (fuseRequested) return
+  fuseRequested = true
+  if (window.Fuse) {
+    buildFuseIndex()
+    return
+  }
+  const script = document.createElement('script')
+  script.src = FUSE_CDN_URL
+  script.async = true
+  script.crossOrigin = 'anonymous'
+  script.addEventListener('load', buildFuseIndex)
+  document.head.appendChild(script)
+}
+
 function onSearchFocus(): void {
   searchFocused.value = true
+  loadFuse()
 }
 
 function onSearchBlur(): void {
@@ -600,12 +894,7 @@ function onSearchBlur(): void {
 }
 
 function selectSearchResult(item: SearchItem): void {
-  if (window.location.hash === item.target) {
-    const el = document.getElementById(item.target.replace(/^#/, ''))
-    el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  } else {
-    window.location.hash = item.target
-  }
+  navigateTo(item.target, item.scrollTo)
   searchQuery.value = ''
   searchFocused.value = false
   searchInputRef.value?.blur()
@@ -617,7 +906,7 @@ function onSearchKeydown(e: KeyboardEvent): void {
     searchInputRef.value?.blur()
     return
   }
-  if (!showSearchDropdown.value) return
+  if (!showSearchDropdown.value || searchResults.value.length === 0) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     searchHighlight.value = Math.min(searchHighlight.value + 1, searchResults.value.length - 1)
@@ -632,6 +921,10 @@ function onSearchKeydown(e: KeyboardEvent): void {
 }
 
 function onGlobalKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && mobileNavOpen.value) {
+    mobileNavOpen.value = false
+    return
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     searchInputRef.value?.focus()
@@ -641,31 +934,47 @@ function onGlobalKey(e: KeyboardEvent): void {
 
 function onHashChange(): void {
   currentHash.value = window.location.hash
+  mobileNavOpen.value = false
 }
 
 onMounted(() => {
   void nextTick(() => { mounted.value = true })
 
   currentHash.value = window.location.hash
-  window.addEventListener('hashchange', onHashChange)
-
-  // Kick off the live-demo script after the page settles.
-  scheduleLive(700, () => { runLiveScript() })
-
-  if (window.Fuse) {
-    fuseIndex.value = new window.Fuse(searchItems.value, {
-      keys: ['label', 'section'],
-      threshold: 0.4,
-      ignoreLocation: true,
-      minMatchCharLength: 1,
-    })
+  if (currentHash.value.length > 1 && !currentHash.value.startsWith('#/')) {
+    scrollToElementAfterRender(currentHash.value.slice(1))
   }
+  window.addEventListener('hashchange', onHashChange)
+  window.addEventListener('popstate', onHashChange)
+
+  liveDemoObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      liveDemoInView = entry.isIntersecting
+      if (entry.isIntersecting) autoResumeLive()
+      else autoPauseLive()
+    }
+  })
+  if (liveDemoRef.value) liveDemoObserver.observe(liveDemoRef.value)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+
+  if (prefersReducedMotion()) {
+    showLiveStaticFrame()
+  } else {
+    // Kick off the live-demo script after the page settles.
+    livePlaying.value = true
+    scheduleLive(700, () => { runLiveScript() })
+  }
+
   window.addEventListener('keydown', onGlobalKey)
 })
 
 onUnmounted(() => {
   window.removeEventListener('hashchange', onHashChange)
+  window.removeEventListener('popstate', onHashChange)
   window.removeEventListener('keydown', onGlobalKey)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  liveDemoObserver?.disconnect()
+  window.clearTimeout(copyResetTimer)
   clearLiveTimers()
   clearLiveAnimations()
 })
@@ -714,26 +1023,47 @@ onUnmounted(() => {
       <symbol id="fc-paragraph" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 5h12" /><path d="M4 9h12" /><path d="M4 13h12" /><path d="M4 17h8" />
       </symbol>
+      <symbol id="fc-github" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+      </symbol>
       <symbol id="fc-hidden" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 10s2.5-5 7-5c1.5 0 2.8.5 3.9 1.2" /><path d="M17 10s-2.5 5-7 5c-1.5 0-2.8-.5-3.9-1.2" /><path d="M3 3l14 14" /><circle cx="10" cy="10" r="2" />
       </symbol>
     </svg>
 
     <!-- ── Header ─────────────────────────────────────────── -->
+    <a class="skip-link" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
+    <span class="sr-only" role="status" aria-live="polite">{{ copyStatus }}</span>
+
     <header class="hdr">
       <div class="hdr-inner">
-        <a href="#" class="hdr-brand" @click.prevent>
-          <img :src="logomarkUrl" width="22" height="22" alt="Formcraft" />
-          <span class="hdr-brand-name">Formcraft</span>
+        <button
+          type="button"
+          class="hdr-menu-btn"
+          :aria-expanded="mobileNavOpen"
+          aria-controls="docs-sidebar"
+          aria-label="Toggle navigation menu"
+          data-qa="hdr-menu-btn"
+          @click="toggleMobileNav"
+        >
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <path v-if="mobileNavOpen" d="M5 5l10 10M15 5L5 15" />
+            <path v-else d="M3 6h14M3 10h14M3 14h14" />
+          </svg>
+        </button>
+        <a :href="docsHref" class="hdr-brand" aria-label="form-builder-vue docs home" data-qa="hdr-brand" @click="goToDocs">
+          <img :src="logomarkUrl" width="22" height="22" alt="" />
+          <span class="hdr-brand-name">form-builder-vue</span>
           <span class="hdr-version">v{{ appVersion }}</span>
         </a>
-        <nav class="hdr-nav">
+        <nav class="hdr-nav" aria-label="Primary">
           <a
-            href="#"
+            :href="docsHref"
             class="hdr-nav-item"
             :class="{ 'is-active': !activeExample }"
+            :aria-current="!activeExample ? 'page' : undefined"
             data-qa="header-docs-link"
-            @click.prevent="goToDocs"
+            @click="goToDocs"
           >Docs</a>
           <a
             href="#/examples/builder-basic"
@@ -749,14 +1079,22 @@ onUnmounted(() => {
           >Changelog</a>
         </nav>
         <div style="flex: 1" />
-        <div class="hdr-search">
-          <svg class="hdr-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <div class="hdr-search" role="search">
+          <svg class="hdr-search-icon" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
             <circle cx="9" cy="9" r="5" /><path d="M13 13l3 3" />
           </svg>
+          <label for="hdr-search-input" class="sr-only">Search docs</label>
           <input
+            id="hdr-search-input"
             ref="searchInputRef"
             v-model="searchQuery"
             type="text"
+            role="combobox"
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-controls="hdr-search-results"
+            :aria-expanded="showSearchDropdown && searchResults.length > 0"
+            :aria-activedescendant="showSearchDropdown && searchResults.length > 0 ? `hdr-search-option-${searchHighlight}` : undefined"
             placeholder="Search docs..."
             class="hdr-search-input"
             data-qa="hdr-search-input"
@@ -764,15 +1102,21 @@ onUnmounted(() => {
             @blur="onSearchBlur"
             @keydown="onSearchKeydown"
           />
-          <kbd class="hdr-search-kbd">&#x2318;K</kbd>
+          <kbd class="hdr-search-kbd" aria-hidden="true">&#x2318;K</kbd>
           <ul
-            v-if="showSearchDropdown"
+            v-show="showSearchDropdown"
+            id="hdr-search-results"
+            role="listbox"
+            aria-label="Search results"
             class="hdr-search-results"
             data-qa="hdr-search-results"
           >
             <li
               v-for="(r, i) in searchResults"
-              :key="`${r.target}-${r.label}`"
+              :id="`hdr-search-option-${i}`"
+              :key="`${r.target}-${r.section}-${r.label}`"
+              role="option"
+              :aria-selected="i === searchHighlight"
               class="hdr-search-result"
               :class="{ 'is-highlight': i === searchHighlight }"
               data-qa="hdr-search-result"
@@ -782,15 +1126,48 @@ onUnmounted(() => {
               <span class="hdr-search-result-label">{{ r.label }}</span>
               <span class="hdr-search-result-section">{{ r.section }}</span>
             </li>
+            <li
+              v-if="searchResults.length === 0"
+              class="hdr-search-empty"
+              role="presentation"
+              data-qa="hdr-search-empty"
+            >No results for &ldquo;{{ searchQuery.trim() }}&rdquo;</li>
           </ul>
         </div>
+        <a
+          :href="NPM_URL"
+          class="hdr-icon-link hdr-icon-link--npm"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="npm package"
+          data-qa="hdr-npm-link"
+        ><span class="hdr-npm-mark" aria-hidden="true">npm</span></a>
+        <a
+          :href="GITHUB_URL"
+          class="hdr-icon-link"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub repository"
+          data-qa="hdr-github-link"
+        ><svg width="18" height="18" aria-hidden="true"><use href="#fc-github" /></svg></a>
       </div>
     </header>
 
     <!-- ── Shell ───────────────────────────────────────────── -->
     <div class="shell">
+      <div
+        v-if="mobileNavOpen"
+        class="sidebar-backdrop"
+        aria-hidden="true"
+        @click="mobileNavOpen = false"
+      />
       <!-- Sidebar -->
-      <aside class="sidebar">
+      <nav
+        id="docs-sidebar"
+        class="sidebar"
+        :class="{ 'is-open': mobileNavOpen }"
+        aria-label="Documentation"
+      >
         <div v-for="sec in NAV" :key="sec.section" class="sidebar-group">
           <div class="sidebar-heading caps">{{ sec.section }}</div>
           <ul class="sidebar-list">
@@ -799,16 +1176,24 @@ onUnmounted(() => {
                 :href="item.target"
                 class="sidebar-link"
                 :class="{ 'is-active': isLinkActive(item) }"
+                :aria-current="isLinkActive(item) ? 'location' : undefined"
                 :data-qa="`sidebar-${item.label.replace(/\s+/g, '-').toLowerCase()}`"
                 @click="onSidebarClick(item, $event)"
               >{{ item.label }}</a>
             </li>
           </ul>
         </div>
-      </aside>
+        <div class="sidebar-group">
+          <div class="sidebar-heading caps">Project</div>
+          <ul class="sidebar-list">
+            <li><a :href="GITHUB_URL" class="sidebar-link" target="_blank" rel="noopener noreferrer" data-qa="sidebar-github">GitHub</a></li>
+            <li><a :href="NPM_URL" class="sidebar-link" target="_blank" rel="noopener noreferrer" data-qa="sidebar-npm">npm</a></li>
+          </ul>
+        </div>
+      </nav>
 
       <!-- Main -->
-      <main class="main">
+      <main id="main-content" class="main" tabindex="-1">
         <div class="content-grid">
           <article class="article" :class="{ 'is-wide': !!activeExample }">
 
@@ -828,7 +1213,7 @@ onUnmounted(() => {
               <div class="hero-inner hero-inner--wide">
                 <div class="hero-pill anim-rise" style="--d: 0">
                   <span class="hero-pill-tag">{{ appVersionShort }}</span>
-                  <span>Initial release &mdash; Vue&nbsp;3.5+</span>
+                  <span>Latest release &mdash; Vue&nbsp;3.5+</span>
                 </div>
 
                 <p class="hero-lede anim-rise" style="--d: 1">
@@ -836,11 +1221,19 @@ onUnmounted(() => {
                   14 field types, v-model on both ends, fully typed, zero&nbsp;jQuery.
                 </p>
 
+                <div class="hero-ctas anim-rise" style="--d: 1">
+                  <a href="#quickstart" class="hero-cta hero-cta--primary" data-qa="hero-cta-docs" @click="onSidebarClick({ label: 'Quickstart', target: '#quickstart' }, $event)">Get started</a>
+                  <a :href="GITHUB_URL" class="hero-cta hero-cta--secondary" target="_blank" rel="noopener noreferrer" data-qa="hero-cta-github">
+                    <svg width="16" height="16" aria-hidden="true"><use href="#fc-github" /></svg>
+                    View on GitHub
+                  </a>
+                </div>
+
                 <div
+                  ref="liveDemoRef"
                   class="preview-window live-demo anim-rise"
                   style="--d: 2"
                   data-qa="live-demo"
-                  @mouseenter="onLiveDemoEnter"
                 >
                   <div class="preview-chrome live-demo-chrome">
                     <span class="preview-dot" /><span class="preview-dot" /><span class="preview-dot" />
@@ -858,23 +1251,39 @@ onUnmounted(() => {
                       >{{ tab === 'json' ? 'JSON' : tab === 'builder' ? 'Builder' : 'Preview' }}</button>
                     </div>
                     <span style="flex: 1" />
-                    <span class="caps preview-chrome-label">{{ liveStopped ? 'live demo' : 'auto-playing' }}</span>
+                    <span class="caps preview-chrome-label">{{ livePlaying ? 'auto-playing' : 'live demo' }}</span>
+                    <button
+                      type="button"
+                      class="live-play-btn"
+                      :aria-label="livePlaying ? 'Pause live demo' : 'Play live demo'"
+                      data-qa="live-play-toggle"
+                      @click="toggleLivePlayback"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="currentColor">
+                        <path v-if="livePlaying" d="M3 2h2v8H3zM7 2h2v8H7z" />
+                        <path v-else d="M3 1.5l7 4.5-7 4.5z" />
+                      </svg>
+                      {{ livePlaying ? 'Pause' : 'Play' }}
+                    </button>
                   </div>
 
-                  <div v-show="liveTab === 'builder'" class="live-pane" data-qa="live-pane-builder">
-                    <FormBuilder v-model="liveFormData" />
-                  </div>
-                  <div v-show="liveTab === 'preview'" class="live-pane live-pane--padded" data-qa="live-pane-preview">
-                    <FormRenderer
-                      v-model="liveUserData"
-                      :form-data="liveFormData"
-                    />
-                    <div v-if="liveFormData.length === 0" class="live-empty">
-                      No fields yet &mdash; add some in the builder.
+                  <div class="live-panes" @mouseenter="onLiveDemoEnter">
+
+                    <div v-show="liveTab === 'builder'" class="live-pane" data-qa="live-pane-builder">
+                      <FormBuilder v-model="liveFormData" />
                     </div>
-                  </div>
-                  <div v-show="liveTab === 'json'" class="live-pane" data-qa="live-pane-json">
-                    <pre class="demo-pre live-json">{{ liveJson }}</pre>
+                    <div v-show="liveTab === 'preview'" class="live-pane live-pane--padded" data-qa="live-pane-preview">
+                      <FormRenderer
+                        v-model="liveUserData"
+                        :form-data="liveFormData"
+                      />
+                      <div v-if="liveFormData.length === 0" class="live-empty">
+                        No fields yet &mdash; add some in the builder.
+                      </div>
+                    </div>
+                    <div v-show="liveTab === 'json'" class="live-pane" data-qa="live-pane-json">
+                      <pre class="demo-pre live-json">{{ liveJson }}</pre>
+                    </div>
                   </div>
                 </div>
 
@@ -883,9 +1292,9 @@ onUnmounted(() => {
 
             <!-- ════ Introduction ════ -->
             <section class="section" id="introduction">
-              <h2 class="section-title">Introduction</h2>
+              <h2 class="section-title">Introduction<a class="heading-anchor" href="#introduction" aria-label="Link to Introduction" @click="onSidebarClick({ label: 'introduction', target: '#introduction' }, $event)">#</a></h2>
               <p class="intro-lede">
-                Formcraft wraps <code>@einhasad-vue/form-builder-vue</code> &mdash; a drag-and-drop form builder for Vue&nbsp;3.
+                <code>@einhasad-vue/form-builder-vue</code> is a drag-and-drop form builder for Vue&nbsp;3.
                 Drop it in, bind an array, save the JSON.
               </p>
               <p>
@@ -898,7 +1307,7 @@ onUnmounted(() => {
                 <span class="callout-badge">&thinsp;i&thinsp;</span>
                 <div class="callout-body">
                   <strong>Stable, but young.</strong>
-                  v0.1 is a ground-up Vue&nbsp;3 port of the original jQuery formBuilder.
+                  <code>form-builder-vue</code> is a ground-up Vue&nbsp;3 port of the original jQuery formBuilder.
                   API surface is intentionally narrow &mdash; prefer the composables for custom behaviour
                   rather than patching the library.
                 </div>
@@ -907,11 +1316,11 @@ onUnmounted(() => {
 
             <!-- ════ Installation ════ -->
             <section class="section" id="installation">
-              <h2 class="section-title">Installation</h2>
+              <h2 class="section-title">Installation<a class="heading-anchor" href="#installation" aria-label="Link to Installation" @click="onSidebarClick({ label: 'installation', target: '#installation' }, $event)">#</a></h2>
               <div class="codeblock codeblock--compact">
                 <pre><code>npm install @einhasad-vue/form-builder-vue</code></pre>
-                <button class="codeblock-copy" @click="copyText('npm install @einhasad-vue/form-builder-vue', 'inst')">
-                  {{ copiedBlock === 'inst' ? 'copied' : 'copy' }}
+                <button type="button" class="codeblock-copy" @click="copyText('npm install @einhasad-vue/form-builder-vue', 'inst')">
+                  {{ copyLabel('inst') }}
                 </button>
               </div>
               <p>Vue 3.5 or newer is required as a peer dependency.</p>
@@ -919,10 +1328,11 @@ onUnmounted(() => {
 
             <!-- ════ Quickstart ════ -->
             <section class="section" id="quickstart">
-              <h2 class="section-title">Quickstart</h2>
+              <h2 class="section-title">Quickstart<a class="heading-anchor" href="#quickstart" aria-label="Link to Quickstart" @click="onSidebarClick({ label: 'quickstart', target: '#quickstart' }, $event)">#</a></h2>
               <p>
                 Bind an array via <code>v-model</code>.
                 The builder handles field creation, edits, and reordering &mdash; you get a JSON array out.
+                Import <code>style.css</code> once; the builder UI needs it.
               </p>
               <div class="codeblock">
                 <div class="codeblock-bar">
@@ -931,8 +1341,8 @@ onUnmounted(() => {
                 </div>
                 <div class="codeblock-body">
                   <pre><code>{{ QUICKSTART_CODE }}</code></pre>
-                  <button class="codeblock-copy" @click="copyText(QUICKSTART_CODE, 'qs')">
-                    {{ copiedBlock === 'qs' ? 'copied' : 'copy' }}
+                  <button type="button" class="codeblock-copy" @click="copyText(QUICKSTART_CODE, 'qs')">
+                    {{ copyLabel('qs') }}
                   </button>
                 </div>
               </div>
@@ -940,10 +1350,10 @@ onUnmounted(() => {
 
             <!-- ════ Form Renderer ════ -->
             <section class="section" id="form-renderer">
-              <h2 class="section-title">Form renderer</h2>
+              <h2 class="section-title">Form renderer<a class="heading-anchor" href="#form-renderer" aria-label="Link to Form renderer" @click="onSidebarClick({ label: 'form-renderer', target: '#form-renderer' }, $event)">#</a></h2>
               <p>
-                Given a <code>FormDataField[]</code> and an empty <code>UserDataMap</code>,
-                the renderer produces the filled-in form.
+                Given a <code>FormDataField[]</code>, the renderer produces an answerable form
+                and fills a <code>UserDataMap</code> through <code>v-model</code> as the user types.
               </p>
               <div class="codeblock">
                 <div class="codeblock-bar">
@@ -952,16 +1362,26 @@ onUnmounted(() => {
                 </div>
                 <div class="codeblock-body">
                   <pre><code>{{ RENDERER_CODE }}</code></pre>
-                  <button class="codeblock-copy" @click="copyText(RENDERER_CODE, 'rend')">
-                    {{ copiedBlock === 'rend' ? 'copied' : 'copy' }}
+                  <button type="button" class="codeblock-copy" @click="copyText(RENDERER_CODE, 'rend')">
+                    {{ copyLabel('rend') }}
                   </button>
+                </div>
+              </div>
+              <h3 id="renderer-v-model" class="section-subtitle">v-model shape</h3>
+              <p>
+                <code>v-model</code> holds a <code>UserDataMap</code>: each field <code>name</code> maps to an array of
+                strings, so single-value and multi-value fields share one shape.
+              </p>
+              <div class="codeblock">
+                <div class="codeblock-body">
+                  <pre><code>{{ USER_DATA_SAMPLE }}</code></pre>
                 </div>
               </div>
             </section>
 
             <!-- ════ Props ════ -->
             <section class="section" id="formbuilder-props">
-              <h2 class="section-title">FormBuilder props</h2>
+              <h2 class="section-title">FormBuilder props<a class="heading-anchor" href="#formbuilder-props" aria-label="Link to FormBuilder props" @click="onSidebarClick({ label: 'formbuilder-props', target: '#formbuilder-props' }, $event)">#</a></h2>
               <div class="api-table-wrap">
                 <table class="api-table">
                   <thead><tr><th>Prop</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
@@ -979,7 +1399,7 @@ onUnmounted(() => {
 
             <!-- ════ Events ════ -->
             <section class="section" id="events">
-              <h2 class="section-title">Events</h2>
+              <h2 class="section-title">Events<a class="heading-anchor" href="#events" aria-label="Link to Events" @click="onSidebarClick({ label: 'events', target: '#events' }, $event)">#</a></h2>
               <div class="api-table-wrap">
                 <table class="api-table">
                   <thead><tr><th>Event</th><th>Payload</th><th>Description</th></tr></thead>
@@ -994,11 +1414,29 @@ onUnmounted(() => {
               </div>
             </section>
 
+            <!-- ════ Exposed methods ════ -->
+            <section class="section" id="formbuilder-methods">
+              <h2 class="section-title">FormBuilder exposed methods<a class="heading-anchor" href="#formbuilder-methods" aria-label="Link to FormBuilder exposed methods" @click="onSidebarClick({ label: 'formbuilder-methods', target: '#formbuilder-methods' }, $event)">#</a></h2>
+              <p>Call these through a template ref: <code>const builder = ref&lt;InstanceType&lt;typeof FormBuilder&gt;&gt;()</code>.</p>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Method</th><th>Returns</th><th>Description</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in METHODS_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td><code>{{ r[1] }}</code></td>
+                      <td class="td-desc">{{ r[2] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <!-- ════ Options ════ -->
             <section class="section" id="options">
-              <h2 class="section-title">BuilderOptions</h2>
+              <h2 class="section-title">BuilderOptions<a class="heading-anchor" href="#options" aria-label="Link to BuilderOptions" @click="onSidebarClick({ label: 'options', target: '#options' }, $event)">#</a></h2>
               <p>
-                Pass <code>options</code> to hide field types, swap the control panel to the right,
+                Pass <code>options</code> to hide field types, move the control panel to the left,
                 or disable specific attributes in the edit panel.
               </p>
               <div class="api-table-wrap">
@@ -1014,18 +1452,29 @@ onUnmounted(() => {
                   </tbody>
                 </table>
               </div>
+              <p class="api-note" data-qa="options-not-applied">
+                The <code>BuilderOptions</code> type also declares
+                <template v-for="(name, i) in OPTIONS_NOT_APPLIED" :key="name"><code>{{ name }}</code>{{ i < OPTIONS_NOT_APPLIED.length - 1 ? ', ' : '' }}</template>.
+                They are accepted for compatibility with the original formBuilder but not yet supported.
+              </p>
             </section>
 
             <!-- ════ Field Types ════ -->
             <section class="section" id="field-types">
-              <h2 class="section-title">Field types</h2>
-              <p>
+              <h2 class="section-title">Field types<a class="heading-anchor" href="#field-types" aria-label="Link to Field types" @click="onSidebarClick({ label: 'field-types', target: '#field-types' }, $event)">#</a></h2>
+              <p id="fieldtype-enum">
                 Fourteen built-in field types via the <code>FieldType</code> enum.
                 Each registers a control definition at builder mount.
               </p>
+              <div class="codeblock">
+                <div class="codeblock-body">
+                  <pre><code>{{ FIELD_TYPE_ENUM_CODE }}</code></pre>
+                </div>
+              </div>
               <div class="field-grid">
                 <div
                   v-for="(f, idx) in FIELD_TYPES"
+                  :id="`field-type-${f.id}`"
                   :key="f.id"
                   class="field-card"
                   :style="{ '--i': idx }"
@@ -1051,13 +1500,148 @@ onUnmounted(() => {
               <div class="callout-body">
                 <strong style="color: var(--success)">Need a custom field type?</strong>
                 Call <code>useFieldRegistry().register(def, component)</code> before mounting.
-                Registered types appear in the control panel alongside the built-ins.
+                <code>def.type</code> can be any string: custom types appear in the control panel alongside the
+                built-ins and are saved as <code>{ type, label, name, access: false }</code>. The registry is shared
+                app-wide, so registering a built-in type overrides it everywhere.
               </div>
             </div>
 
+            <!-- ════ FormRenderer API ════ -->
+            <section class="section" id="renderer-api">
+              <h2 class="section-title">FormRenderer API<a class="heading-anchor" href="#renderer-api" aria-label="Link to FormRenderer API" @click="onSidebarClick({ label: 'renderer-api', target: '#renderer-api' }, $event)">#</a></h2>
+              <h3 class="section-subtitle">Props</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Prop</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in RENDERER_PROPS_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td><code>{{ r[1] }}</code></td>
+                      <td><code>{{ r[2] }}</code></td>
+                      <td class="td-desc">{{ r[3] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <h3 class="section-subtitle">Events</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Event</th><th>Payload</th><th>Description</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in RENDERER_EVENTS_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td><code>{{ r[1] }}</code></td>
+                      <td class="td-desc">{{ r[2] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <h3 class="section-subtitle">Exposed methods</h3>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Method</th><th>Returns</th><th>Description</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in RENDERER_METHODS_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td><code>{{ r[1] }}</code></td>
+                      <td class="td-desc">{{ r[2] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <h3 id="validation-messages" class="section-subtitle">Validation messages</h3>
+              <p>
+                Messages come from i18n keys; override them with <code>useI18n().addMessages(locale, messages)</code>.
+                <code>useFormRenderer(t?)</code> takes an optional translator when you use the composable directly.
+              </p>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Key</th><th>Default (en)</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in VALIDATION_MESSAGE_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td class="td-desc">{{ r[1] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- ════ RendererOptions ════ -->
+            <section class="section" id="renderer-options">
+              <h2 class="section-title">RendererOptions<a class="heading-anchor" href="#renderer-options" aria-label="Link to RendererOptions" @click="onSidebarClick({ label: 'renderer-options', target: '#renderer-options' }, $event)">#</a></h2>
+              <p>Passed to <code>FormRenderer</code> through the <code>options</code> prop.</p>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in RENDERER_OPTIONS_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td><code>{{ r[1] }}</code></td>
+                      <td><code>{{ r[2] }}</code></td>
+                      <td class="td-desc">{{ r[3] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- ════ Theming ════ -->
+            <section class="section" id="theming">
+              <h2 class="section-title">Theming<a class="heading-anchor" href="#theming" aria-label="Link to Theming" @click="onSidebarClick({ label: 'theming', target: '#theming' }, $event)">#</a></h2>
+              <p>
+                Styles read their colors from CSS custom properties. Redefine them on <code>.form-builder</code>
+                (or any ancestor) to retheme without overriding individual selectors.
+              </p>
+              <div class="api-table-wrap">
+                <table class="api-table">
+                  <thead><tr><th>Variable</th><th>Purpose</th><th>Default</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(r, i) in THEME_ROWS" :key="i">
+                      <td><code class="prop-name">{{ r[0] }}</code></td>
+                      <td class="td-desc">{{ r[1] }}</td>
+                      <td><code>{{ r[2] }}</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- ════ Data shapes ════ -->
+            <section class="section" id="data-shapes">
+              <h2 class="section-title">Data shapes<a class="heading-anchor" href="#data-shapes" aria-label="Link to Data shapes" @click="onSidebarClick({ label: 'data-shapes', target: '#data-shapes' }, $event)">#</a></h2>
+              <h3 id="form-data-field" class="section-subtitle">FormDataField</h3>
+              <p>
+                The builder&rsquo;s <code>v-model</code> is a JSON array of field objects. Save it as-is and pass
+                it back to <code>FormBuilder</code> or <code>FormRenderer</code>; header and paragraph fields have no
+                <code>name</code>.
+              </p>
+              <div class="codeblock">
+                <div class="codeblock-body">
+                  <pre><code>{{ FORM_DATA_FIELD_SAMPLE }}</code></pre>
+                </div>
+              </div>
+              <h3 id="user-data-map" class="section-subtitle">UserDataMap</h3>
+              <p>The renderer&rsquo;s <code>v-model</code>: answers keyed by field <code>name</code>.</p>
+              <div class="codeblock">
+                <div class="codeblock-body">
+                  <pre><code>{{ USER_DATA_MAP_TYPE }}</code></pre>
+                </div>
+              </div>
+            </section>
+
             <!-- ════ Footer ════ -->
             <footer class="page-footer">
-              <span>Last updated <time datetime="2026-04-20">April 20, 2026</time></span>
+              <span>
+                v{{ appVersion }}<template v-if="releaseDate"> &middot; released <time :datetime="releaseDate">{{ releaseDateLabel }}</time></template>
+                &middot; <a :href="LICENSE_URL" target="_blank" rel="noopener noreferrer">MIT license</a>
+              </span>
+              <nav class="page-footer-links" aria-label="Project links">
+                <a :href="GITHUB_URL" target="_blank" rel="noopener noreferrer" data-qa="footer-github">GitHub</a>
+                <a :href="ISSUES_URL" target="_blank" rel="noopener noreferrer">Issues</a>
+                <a :href="NPM_URL" target="_blank" rel="noopener noreferrer">npm</a>
+                <a href="#/changelog">Changelog</a>
+              </nav>
             </footer>
 
             </template>
@@ -1140,9 +1724,10 @@ html {
 .demo-btn {
   font: inherit;
   font-size: 13px;
-  padding: 6px 12px;
+  line-height: normal;
+  padding: 7px 14px;
   border: 1px solid var(--line-2);
-  border-radius: var(--radius-xs);
+  border-radius: 4px;
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
@@ -1151,6 +1736,7 @@ html {
 }
 .demo-btn:hover { border-color: var(--ink); }
 .demo-btn.primary {
+  font-weight: 500;
   background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent);
@@ -1267,6 +1853,37 @@ textarea.demo-input {
   transform: translateY(0);
 }
 
+/* ── Accessibility helpers ────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus { transform: none; }
+
+.main:focus { outline: none; }
+
 /* ── Header ───────────────────────────────────────────── */
 .hdr {
   position: sticky;
@@ -1295,8 +1912,26 @@ textarea.demo-input {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-height: 32px;
   text-decoration: none;
   color: var(--ink);
+}
+
+.hdr-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
 }
 
 .hdr-brand-name {
@@ -1339,6 +1974,32 @@ textarea.demo-input {
 
 .hdr-search {
   position: relative;
+  min-width: 0;
+}
+
+.hdr-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 32px;
+  height: 32px;
+  border-radius: var(--radius-xs);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: color var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease);
+}
+
+.hdr-icon-link:hover {
+  color: var(--ink);
+  background: var(--surface-sunk);
+}
+
+.hdr-npm-mark {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 6px;
 }
 
 .hdr-search-input {
@@ -1424,6 +2085,12 @@ textarea.demo-input {
 .hdr-search-result-section {
   flex-shrink: 0;
   font-size: 11px;
+  color: var(--ink-3);
+}
+
+.hdr-search-empty {
+  padding: 7px 10px;
+  font-size: 13px;
   color: var(--ink-3);
 }
 
@@ -1553,6 +2220,45 @@ textarea.demo-input {
   text-transform: uppercase;
 }
 
+.hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: var(--space-5);
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 16px;
+  font-size: 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background var(--dur-hover) var(--ease), border-color var(--dur-hover) var(--ease);
+}
+
+.hero-cta--primary {
+  font-weight: 500;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.hero-cta--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.hero-cta--secondary {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.hero-cta--secondary:hover { border-color: var(--ink); }
+
 .hero-lede {
   font-size: 18px;
   line-height: 1.6;
@@ -1636,7 +2342,8 @@ textarea.demo-input {
   color: white;
 }
 
-.callout-body { flex: 1; color: var(--ink); }
+.callout-body { flex: 1; min-width: 0; color: var(--ink); }
+.callout-body code { overflow-wrap: anywhere; }
 
 /* ── Code Blocks ──────────────────────────────────────── */
 .codeblock {
@@ -1701,10 +2408,15 @@ textarea.demo-input {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 32px;
   border: var(--border);
   background: var(--surface);
   border-radius: var(--radius-xs);
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: 11px;
   cursor: pointer;
   color: var(--ink-3);
@@ -1721,7 +2433,7 @@ textarea.demo-input {
 .api-table-wrap {
   border: var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  overflow-x: auto;
   margin: 16px 0 20px;
   background: var(--surface);
 }
@@ -1772,6 +2484,18 @@ textarea.demo-input {
 }
 
 .td-desc { color: var(--ink-2); }
+
+.api-note {
+  font-size: 13px;
+}
+
+.section-subtitle {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+  margin: var(--space-5) 0 var(--space-2);
+  scroll-margin-top: calc(var(--header-h) + var(--space-4));
+}
 
 .api-table code { font-size: 12px; }
 
@@ -1911,6 +2635,24 @@ textarea.demo-input {
   color: var(--paper);
 }
 
+.live-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.live-play-btn:hover { border-color: var(--ink); }
+
 .live-pane {
   background: var(--paper);
   min-height: 320px;
@@ -2001,12 +2743,65 @@ textarea.demo-input {
 
 .page-footer a:hover { color: var(--ink); }
 
+.page-footer {
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+}
+
+.page-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.heading-anchor {
+  margin-left: 8px;
+  color: var(--ink-3);
+  font-weight: 400;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease);
+}
+
+.section-title:hover .heading-anchor,
+.heading-anchor:focus-visible { opacity: 1; }
+
+@media (hover: none) {
+  .heading-anchor { opacity: 0.5; }
+}
+
 /* ── Responsive ───────────────────────────────────────── */
 .hide-mobile { display: inline; }
 
 @media (max-width: 960px) {
   .shell { grid-template-columns: 1fr; }
+  .hdr-menu-btn { display: inline-flex; }
+  .hdr-inner { gap: var(--space-4); }
+  .hdr-version { display: none; }
+  .hdr-search { flex: 0 1 220px; min-width: 120px; }
+  .hdr-icon-link--npm { display: none; }
+  .hdr-search-input,
+  .hdr-search-input:focus { width: 100%; }
   .sidebar { display: none; }
+  .sidebar.is-open {
+    display: block;
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(300px, 85vw);
+    max-height: none;
+    align-self: stretch;
+    background: var(--paper);
+    box-shadow: var(--shadow-md);
+  }
+  .sidebar-backdrop {
+    position: fixed;
+    inset: var(--header-h) 0 0 0;
+    z-index: 35;
+    background: rgba(17, 17, 17, 0.32);
+  }
   .content-grid { grid-template-columns: 1fr; }
   .hero {
     margin: 0 calc(-1 * var(--space-5));
@@ -2018,10 +2813,30 @@ textarea.demo-input {
   .field-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .hdr-nav { display: none; }
-  .hdr-search-input { width: 140px; }
-  .hdr-search-input:focus { width: 180px; }
+}
+
+@media (max-width: 640px) {
+  .hdr { padding: 0 var(--space-4); }
+  .hdr-inner { gap: var(--space-3); }
+  .hdr-nav { display: none; }
+  .hdr-version { display: none; }
+  .hdr-search { flex: 1 1 auto; max-width: 220px; }
+  .hdr-search-input,
+  .hdr-search-input:focus { width: 100%; }
+  .hdr-search-kbd { display: none; }
+  .hdr-search-results {
+    position: fixed;
+    top: calc(var(--header-h) + 4px);
+    left: var(--space-4);
+    right: var(--space-4);
+    min-width: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .hdr-brand-name { display: none; }
 }
 
 </style>
