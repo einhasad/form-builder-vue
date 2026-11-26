@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as { version: string }
 
 /**
  * Dedicated config for the public demo site (GitHub Pages).
@@ -12,6 +15,9 @@ import { resolve } from 'node:path'
 export default defineConfig(() => ({
   plugins: [vue()],
   base: process.env['VITE_DEMO_BASE'] ?? '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       // Inside the demo, `@einhasad-vue/form-builder-vue` resolves to the

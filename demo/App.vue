@@ -7,6 +7,9 @@ import BuilderMethods from './views/BuilderMethods.vue'
 import RendererBasic from './views/RendererBasic.vue'
 import RendererDisabled from './views/RendererDisabled.vue'
 import Composables from './views/Composables.vue'
+import Changelog from './views/Changelog.vue'
+import { FormBuilder, FormRenderer, FieldType } from '../src'
+import type { FormDataField, UserDataMap } from '../src'
 
 /* ── Public assets ──────────────────────────────────────────
  * Files under `public/` are copied verbatim to the build root.
@@ -16,20 +19,311 @@ import Composables from './views/Composables.vue'
  */
 const logomarkUrl = `${import.meta.env.BASE_URL}logomark.svg`
 
+declare const __APP_VERSION__: string
+const appVersion = __APP_VERSION__
+const appVersionShort = `v${appVersion.split('.').slice(0, 2).join('.')}`
+
 /* ── State ──────────────────────────────────────────────── */
 const searchQuery = ref('')
-const copied = ref(false)
 const copiedBlock = ref('')
-const activeToc = ref('Introduction')
 const mounted = ref(false)
-const selectedPreviewField = ref(0)
 const currentHash = ref<string>(typeof window === 'undefined' ? '' : window.location.hash)
+const activeScrollId = ref<string | null>(null)
+
+/* ── Live demo (auto-script) ───────────────────────────── */
+type LiveTab = 'builder' | 'preview' | 'json'
+
+const liveFormData = ref<FormDataField[]>([])
+const liveUserData = ref<UserDataMap>({})
+const liveTab = ref<LiveTab>('builder')
+const liveStopped = ref(false)
+const liveTimers: number[] = []
+const liveGhosts = new Set<HTMLElement>()
+const liveAnimations = new Set<Animation>()
+
+interface ScriptStep {
+  /** Control panel label whose chip should fly across (e.g. "Text Field"). */
+  controlLabel: string
+  /** Field appended to the form when the ghost lands on the stage. */
+  field: FormDataField
+}
+
+const SCRIPT_STEPS: ScriptStep[] = [
+  {
+    controlLabel: 'Text Field',
+    field: { type: FieldType.Text, subtype: 'text', label: 'Full name', required: true, placeholder: 'Ada Lovelace', className: 'form-control', name: 'full-name' },
+  },
+  {
+    controlLabel: 'Text Field',
+    field: { type: FieldType.Text, subtype: 'email', label: 'Email', required: true, placeholder: 'you@example.com', className: 'form-control', name: 'email' },
+  },
+  {
+    controlLabel: 'Select',
+    field: { type: FieldType.Select, label: 'Country', className: 'form-control', name: 'country', multiple: false, values: [
+      { label: 'United States', value: 'us', selected: false },
+      { label: 'Germany', value: 'de', selected: true },
+      { label: 'Japan', value: 'jp', selected: false },
+    ] },
+  },
+  {
+    controlLabel: 'Checkbox Group',
+    field: { type: FieldType.CheckboxGroup, label: 'Interests', className: 'form-control', name: 'interests', toggle: false, inline: false, other: false, values: [
+      { label: 'Design', value: 'design', selected: true },
+      { label: 'Engineering', value: 'engineering', selected: true },
+      { label: 'Product', value: 'product', selected: false },
+    ] },
+  },
+]
+
+// Per-step phase timings (drag sequence)
+const APPROACH_MS = 480   // cursor moves from previous spot to chip
+const GRAB_MS = 220       // press: chip lifts under cursor
+const DRAG_MS = 760       // cursor + chip travel to drop zone
+const DROP_MS = 240       // release: real field appears, ghost fades
+const STEP_TOTAL_MS = APPROACH_MS + GRAB_MS + DRAG_MS + DROP_MS
+
+let liveCursorEl: HTMLElement | null = null
+let liveCursorPos: { x: number; y: number } | null = null
+
+const liveJson = computed(() => JSON.stringify(liveFormData.value, null, 2))
+
+function clearLiveTimers(): void {
+  while (liveTimers.length > 0) {
+    const id = liveTimers.pop()
+    if (id !== undefined) clearTimeout(id)
+  }
+}
+
+function clearLiveAnimations(): void {
+  for (const anim of liveAnimations) anim.cancel()
+  liveAnimations.clear()
+  for (const ghost of liveGhosts) ghost.remove()
+  liveGhosts.clear()
+  document.querySelectorAll<HTMLElement>('[data-qa="live-pane-builder"] [data-qa="control-item"].is-fly-source')
+    .forEach((el) => { el.classList.remove('is-fly-source') })
+  document.querySelectorAll<HTMLElement>('[data-qa="live-pane-builder"] [data-qa="builder-stage"].is-drop-target')
+    .forEach((el) => { el.classList.remove('is-drop-target') })
+  if (liveCursorEl) {
+    liveCursorEl.remove()
+    liveCursorEl = null
+    liveCursorPos = null
+  }
+}
+
+function scheduleLive(delay: number, fn: () => void): void {
+  if (liveStopped.value) return
+  const id = window.setTimeout(() => {
+    if (liveStopped.value) return
+    fn()
+  }, delay)
+  liveTimers.push(id)
+}
+
+function findControlChip(label: string): HTMLElement | null {
+  const chips = document.querySelectorAll<HTMLElement>('[data-qa="live-pane-builder"] [data-qa="control-item"]')
+  for (const chip of chips) {
+    const text = chip.querySelector('.control-label')?.textContent?.trim()
+    if (text === label) return chip
+  }
+  return null
+}
+
+function ensureCursor(initialX: number, initialY: number): HTMLElement {
+  if (liveCursorEl) return liveCursorEl
+  const el = document.createElement('div')
+  el.className = 'live-cursor'
+  el.setAttribute('aria-hidden', 'true')
+  el.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 2 L3.5 17 L7.5 13.5 L10 19.5 L12.5 18.5 L10 12.5 L15.5 12 Z" fill="#111" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>'
+  el.style.position = 'fixed'
+  el.style.left = '0'
+  el.style.top = '0'
+  el.style.zIndex = '10000'
+  el.style.pointerEvents = 'none'
+  el.style.transform = `translate(${String(initialX)}px, ${String(initialY)}px)`
+  el.style.opacity = '0'
+  document.body.appendChild(el)
+  liveCursorEl = el
+  liveCursorPos = { x: initialX, y: initialY }
+  // Fade in
+  const fadeIn = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: 'forwards' })
+  liveAnimations.add(fadeIn)
+  fadeIn.addEventListener('finish', () => { liveAnimations.delete(fadeIn) })
+  return el
+}
+
+function moveCursor(toX: number, toY: number, duration: number, easing: string): void {
+  const cur = liveCursorEl
+  if (!cur || !liveCursorPos) return
+  const fromX = liveCursorPos.x
+  const fromY = liveCursorPos.y
+  const anim = cur.animate(
+    [
+      { transform: `translate(${String(fromX)}px, ${String(fromY)}px)` },
+      { transform: `translate(${String(toX)}px, ${String(toY)}px)` },
+    ],
+    { duration, easing, fill: 'forwards' },
+  )
+  liveAnimations.add(anim)
+  anim.addEventListener('finish', () => { liveAnimations.delete(anim) })
+  liveCursorPos = { x: toX, y: toY }
+}
+
+/**
+ * Drag a chip from the panel to the stage. The sequence is:
+ *   1. cursor approaches the chip (APPROACH_MS)
+ *   2. cursor "presses" — chip lifts under it (GRAB_MS)
+ *   3. cursor + ghost chip travel to the stage (DRAG_MS)
+ *   4. release — field is appended, ghost fades, stage un-highlights (DROP_MS)
+ */
+function flyAndAddField(step: ScriptStep): void {
+  if (liveStopped.value) return
+  const source = findControlChip(step.controlLabel)
+  const stage = document.querySelector<HTMLElement>('[data-qa="live-pane-builder"] [data-qa="builder-stage"]')
+  if (!source || !stage) {
+    liveFormData.value = [...liveFormData.value, step.field]
+    return
+  }
+
+  const sourceRect = source.getBoundingClientRect()
+  const stageRect = stage.getBoundingClientRect()
+  const sx = sourceRect.left + sourceRect.width / 2
+  const sy = sourceRect.top + sourceRect.height / 2
+  // Drop point: just inside the stage (last existing card area)
+  const tx = stageRect.left + stageRect.width / 2
+  const ty = stageRect.bottom - Math.min(40, stageRect.height * 0.18)
+
+  // Spawn cursor near the chip on first use, then it persists across steps.
+  if (!liveCursorEl) {
+    ensureCursor(sourceRect.left - 60, sourceRect.top - 30)
+  }
+
+  // Phase 1: cursor approaches the chip
+  moveCursor(sx + 6, sy + 6, APPROACH_MS, 'cubic-bezier(0.22, 1, 0.36, 1)')
+
+  // Phase 2: grab — chip lifts in place under cursor; ghost is attached
+  scheduleLive(APPROACH_MS, () => {
+    const cur = liveCursorEl
+    if (cur) cur.classList.add('is-grabbing')
+    source.classList.add('is-fly-source')
+    const ghost = source.cloneNode(true) as HTMLElement
+    ghost.classList.add('live-fly-ghost')
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.style.position = 'fixed'
+    ghost.style.left = `${String(sx)}px`
+    ghost.style.top = `${String(sy)}px`
+    ghost.style.width = `${String(sourceRect.width)}px`
+    ghost.style.height = `${String(sourceRect.height)}px`
+    ghost.style.margin = '0'
+    ghost.style.pointerEvents = 'none'
+    ghost.style.zIndex = '9999'
+    ghost.style.transformOrigin = '50% 50%'
+    document.body.appendChild(ghost)
+    liveGhosts.add(ghost)
+
+    // Press animation: ghost lifts slightly with shadow, settling under cursor.
+    const press = ghost.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(1)', boxShadow: '0 4px 10px rgba(17,17,17,0.08)' },
+        { transform: 'translate(-50%, -50%) scale(1.04)', boxShadow: '0 14px 30px rgba(17,17,17,0.22), 0 2px 6px rgba(17,17,17,0.12)' },
+      ],
+      { duration: GRAB_MS, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' },
+    )
+    liveAnimations.add(press)
+    press.addEventListener('finish', () => { liveAnimations.delete(press) })
+
+    // Phase 3: drag — cursor and ghost slide together to the drop point.
+    const dragTimer = window.setTimeout(() => {
+      if (liveStopped.value) return
+      stage.classList.add('is-drop-target')
+      moveCursor(tx + 6, ty + 6, DRAG_MS, 'cubic-bezier(0.4, 0.05, 0.55, 0.95)')
+      const drag = ghost.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(1.04)' },
+          { transform: `translate(calc(-50% + ${String((tx - sx) * 0.5)}px), calc(-50% + ${String((ty - sy) * 0.5)}px)) scale(1.04) rotate(-1.5deg)`, offset: 0.5 },
+          { transform: `translate(calc(-50% + ${String(tx - sx)}px), calc(-50% + ${String(ty - sy)}px)) scale(1.02) rotate(0deg)` },
+        ],
+        { duration: DRAG_MS, easing: 'cubic-bezier(0.4, 0.05, 0.55, 0.95)', fill: 'forwards' },
+      )
+      liveAnimations.add(drag)
+      drag.addEventListener('finish', () => { liveAnimations.delete(drag) })
+    }, GRAB_MS)
+    liveTimers.push(dragTimer)
+
+    // Phase 4: drop — append field, fade ghost, un-grab cursor, un-highlight stage.
+    const dropTimer = window.setTimeout(() => {
+      if (liveStopped.value) {
+        ghost.remove()
+        liveGhosts.delete(ghost)
+        return
+      }
+      liveFormData.value = [...liveFormData.value, step.field]
+      stage.classList.remove('is-drop-target')
+      if (cur) cur.classList.remove('is-grabbing')
+      source.classList.remove('is-fly-source')
+      const fade = ghost.animate(
+        [
+          { transform: `translate(calc(-50% + ${String(tx - sx)}px), calc(-50% + ${String(ty - sy)}px)) scale(1.02)`, opacity: 1 },
+          { transform: `translate(calc(-50% + ${String(tx - sx)}px), calc(-50% + ${String(ty - sy + 6)}px)) scale(0.92)`, opacity: 0 },
+        ],
+        { duration: DROP_MS, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'forwards' },
+      )
+      liveAnimations.add(fade)
+      fade.addEventListener('finish', () => {
+        liveAnimations.delete(fade)
+        ghost.remove()
+        liveGhosts.delete(ghost)
+      })
+    }, GRAB_MS + DRAG_MS)
+    liveTimers.push(dropTimer)
+  })
+}
+
+function runLiveScript(): void {
+  if (liveStopped.value) return
+  const TAB_GAP = 2100
+
+  scheduleLive(0, () => { liveTab.value = 'builder'; liveFormData.value = [] })
+  let elapsed = 700
+  for (const step of SCRIPT_STEPS) {
+    const captured = step
+    scheduleLive(elapsed, () => { flyAndAddField(captured) })
+    elapsed += STEP_TOTAL_MS + 240
+  }
+  elapsed += 600
+  scheduleLive(elapsed, () => { liveTab.value = 'preview' })
+  elapsed += TAB_GAP
+  scheduleLive(elapsed, () => { liveTab.value = 'json' })
+  elapsed += TAB_GAP
+  scheduleLive(elapsed, () => { liveTab.value = 'builder' })
+}
+
+function onLiveDemoEnter(): void {
+  if (liveStopped.value) return
+  liveStopped.value = true
+  clearLiveTimers()
+  clearLiveAnimations()
+  liveTab.value = 'builder'
+  liveFormData.value = []
+  liveUserData.value = {}
+}
+
+function selectLiveTab(tab: LiveTab): void {
+  // Manual click also halts the script (user took control).
+  if (!liveStopped.value) {
+    liveStopped.value = true
+    clearLiveTimers()
+    clearLiveAnimations()
+  }
+  liveTab.value = tab
+}
 
 interface NavItem {
   /** Link label shown in the sidebar. */
   label: string
   /** Either an anchor like `#quickstart` or a hash route like `#/examples/builder-basic`. */
   target: string
+  /** Optional element id to scroll to on the destination page (for sub-sections within a route). */
+  scrollTo?: string
 }
 
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -62,10 +356,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: 'Composables',
     items: [
-      { label: 'useFormBuilder', target: '#/examples/composables' },
-      { label: 'useFieldRegistry', target: '#/examples/composables' },
-      { label: 'useDragDrop', target: '#/examples/composables' },
-      { label: 'useI18n', target: '#/examples/composables' },
+      { label: 'useFormBuilder', target: '#/examples/composables', scrollTo: 'useFormBuilder' },
+      { label: 'useFieldRegistry', target: '#/examples/composables', scrollTo: 'useFieldRegistry' },
+      { label: 'useDragDrop', target: '#/examples/composables', scrollTo: 'useDragDrop' },
+      { label: 'useI18n', target: '#/examples/composables', scrollTo: 'useI18n' },
     ],
   },
   {
@@ -74,7 +368,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { label: 'FormDataField', target: '#formbuilder-props' },
       { label: 'UserDataMap', target: '#form-renderer' },
       { label: 'FieldType enum', target: '#field-types' },
-      { label: 'Changelog', target: '#' },
+      { label: 'Changelog', target: '#/changelog' },
     ],
   },
 ]
@@ -93,6 +387,7 @@ const EXAMPLE_ROUTES: ExampleRoute[] = [
   { hash: '#/examples/renderer-basic', title: 'FormRenderer · basic', component: RendererBasic },
   { hash: '#/examples/renderer-disabled', title: 'FormRenderer · disabled', component: RendererDisabled },
   { hash: '#/examples/composables', title: 'Composables', component: Composables },
+  { hash: '#/changelog', title: 'Changelog', component: Changelog },
 ]
 
 const activeExample = computed<ExampleRoute | null>(() => {
@@ -100,26 +395,39 @@ const activeExample = computed<ExampleRoute | null>(() => {
 })
 
 function isLinkActive(item: NavItem): boolean {
-  // Hash routes become "active" when the current hash matches exactly AND
-  // this is the first sidebar item pointing at that target (otherwise multiple
-  // items in a section that share a route — e.g. the composables — would all
-  // light up at once).
+  // Hash routes become "active" when the current hash matches exactly. When
+  // several sidebar items share a route (e.g. the composables) and disambiguate
+  // via `scrollTo`, the item whose `scrollTo` matches `activeScrollId` wins;
+  // otherwise the first item in that group is active.
   if (!item.target.startsWith('#/') || currentHash.value !== item.target) return false
+  const siblings: NavItem[] = []
   for (const sec of NAV) {
-    const first = sec.items.find((it) => it.target === item.target)
-    if (first === item) return true
+    for (const it of sec.items) {
+      if (it.target === item.target) siblings.push(it)
+    }
   }
-  return false
+  if (siblings.length <= 1) return true
+  const matched = siblings.find((it) => it.scrollTo && it.scrollTo === activeScrollId.value)
+  if (matched) return matched === item
+  return siblings[0] === item
 }
 
 function onSidebarClick(item: NavItem, event: MouseEvent): void {
   if (item.target.startsWith('#/')) {
     event.preventDefault()
-    if (window.location.hash !== item.target) {
+    const sameRoute = window.location.hash === item.target
+    if (!sameRoute) {
       window.location.hash = item.target
     }
     currentHash.value = item.target
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    activeScrollId.value = item.scrollTo ?? null
+    if (item.scrollTo) {
+      void nextTick(() => {
+        document.getElementById(item.scrollTo ?? '')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      })
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
     return
   }
   // Docs anchor clicked while an example route is active: the article is
@@ -163,18 +471,6 @@ const FIELD_TYPES = [
   { id: 'header', label: 'Header', desc: 'Section heading (h1-h6)' },
   { id: 'paragraph', label: 'Paragraph', desc: 'Static content block' },
   { id: 'hidden', label: 'Hidden', desc: 'Non-visible field value' },
-]
-
-const TOC_ITEMS = [
-  { id: 'introduction', label: 'Introduction' },
-  { id: 'installation', label: 'Installation' },
-  { id: 'quickstart', label: 'Quickstart' },
-  { id: 'form-renderer', label: 'Form renderer' },
-  { id: 'formbuilder-props', label: 'Props' },
-  { id: 'events', label: 'Events' },
-  { id: 'options', label: 'Options' },
-  { id: 'field-types', label: 'Field types' },
-  { id: 'live-preview', label: 'Live preview' },
 ]
 
 const QUICKSTART_CODE = `<script setup lang="ts">
@@ -233,25 +529,11 @@ const OPTIONS_ROWS = [
   ['fieldRemoveWarn', 'boolean', 'false', 'Confirm dialog before field removal.'],
 ]
 
-const installCmd = 'npm install @einhasad-vue/form-builder-vue'
-
 function copyText(text: string, id: string) {
   void navigator.clipboard?.writeText(text)
-  if (id === 'install') {
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 1400)
-  } else {
-    copiedBlock.value = id
-    setTimeout(() => { copiedBlock.value = '' }, 1400)
-  }
+  copiedBlock.value = id
+  setTimeout(() => { copiedBlock.value = '' }, 1400)
 }
-
-const stageFields = [
-  { type: 'text', label: 'Full name', required: true },
-  { type: 'select', label: 'Country', required: false },
-  { type: 'checkbox-group', label: 'Interests', required: false },
-  { type: 'textarea', label: 'Bio', required: false },
-]
 
 /* ── Search (Fuse.js via CDN, see index.html) ───────────── */
 interface FuseSearchResult<T> { item: T }
@@ -357,9 +639,6 @@ function onGlobalKey(e: KeyboardEvent): void {
   }
 }
 
-/* ── Scroll-aware TOC ───────────────────────────────────── */
-let observer: IntersectionObserver | null = null
-
 function onHashChange(): void {
   currentHash.value = window.location.hash
 }
@@ -370,26 +649,8 @@ onMounted(() => {
   currentHash.value = window.location.hash
   window.addEventListener('hashchange', onHashChange)
 
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const match = TOC_ITEMS.find((t) => t.id === entry.target.id)
-          if (match) activeToc.value = match.label
-        }
-      }
-    },
-    { rootMargin: '-80px 0px -60% 0px', threshold: 0.1 },
-  )
-  for (const item of TOC_ITEMS) {
-    const el = document.getElementById(item.id)
-    if (el) observer.observe(el)
-  }
-
-  // Cycle selected preview field for visual interest
-  setInterval(() => {
-    selectedPreviewField.value = (selectedPreviewField.value + 1) % stageFields.length
-  }, 3000)
+  // Kick off the live-demo script after the page settles.
+  scheduleLive(700, () => { runLiveScript() })
 
   if (window.Fuse) {
     fuseIndex.value = new window.Fuse(searchItems.value, {
@@ -403,9 +664,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  observer?.disconnect()
   window.removeEventListener('hashchange', onHashChange)
   window.removeEventListener('keydown', onGlobalKey)
+  clearLiveTimers()
+  clearLiveAnimations()
 })
 </script>
 
@@ -463,7 +725,7 @@ onUnmounted(() => {
         <a href="#" class="hdr-brand" @click.prevent>
           <img :src="logomarkUrl" width="22" height="22" alt="Formcraft" />
           <span class="hdr-brand-name">Formcraft</span>
-          <span class="hdr-version">v0.1.0</span>
+          <span class="hdr-version">v{{ appVersion }}</span>
         </a>
         <nav class="hdr-nav">
           <a
@@ -476,10 +738,15 @@ onUnmounted(() => {
           <a
             href="#/examples/builder-basic"
             class="hdr-nav-item"
-            :class="{ 'is-active': !!activeExample }"
+            :class="{ 'is-active': currentHash.startsWith('#/examples/') }"
             data-qa="header-examples-link"
           >Examples</a>
-          <a href="#" class="hdr-nav-item">Changelog</a>
+          <a
+            href="#/changelog"
+            class="hdr-nav-item"
+            :class="{ 'is-active': currentHash === '#/changelog' }"
+            data-qa="header-changelog-link"
+          >Changelog</a>
         </nav>
         <div style="flex: 1" />
         <div class="hdr-search">
@@ -542,13 +809,13 @@ onUnmounted(() => {
 
       <!-- Main -->
       <main class="main">
-        <div class="content-grid" :class="{ 'is-wide': !!activeExample }">
+        <div class="content-grid">
           <article class="article" :class="{ 'is-wide': !!activeExample }">
 
             <!-- ════ Active example (hash-routed) ════ -->
             <section v-if="activeExample" class="example-pane" data-qa="example-pane">
               <div class="example-header">
-                <div class="caps example-crumb">Examples</div>
+                <div class="caps example-crumb">{{ activeExample.hash === '#/changelog' ? 'Release notes' : 'Examples' }}</div>
                 <h1 class="example-title" data-qa="example-title">{{ activeExample.title }}</h1>
               </div>
               <component :is="activeExample.component" />
@@ -556,47 +823,61 @@ onUnmounted(() => {
 
             <template v-else>
 
-            <!-- ════ Hero ════ -->
-            <section class="hero">
-              <div class="hero-inner">
+            <!-- ════ Hero (live demo) ════ -->
+            <section class="hero hero--demo" id="live-demo">
+              <div class="hero-inner hero-inner--wide">
                 <div class="hero-pill anim-rise" style="--d: 0">
-                  <span class="hero-pill-tag">v0.1</span>
+                  <span class="hero-pill-tag">{{ appVersionShort }}</span>
                   <span>Initial release &mdash; Vue&nbsp;3.5+</span>
                 </div>
 
-                <h1 class="hero-headline anim-rise" style="--d: 1">
-                  Drag, drop,<br />ship&nbsp;forms.
-                </h1>
-
-                <p class="hero-lede anim-rise" style="--d: 2">
+                <p class="hero-lede anim-rise" style="--d: 1">
                   A Vue&nbsp;3 form builder you can actually reason about.<br class="hide-mobile" />
                   14 field types, v-model on both ends, fully typed, zero&nbsp;jQuery.
                 </p>
 
-                <div class="hero-actions anim-rise" style="--d: 3">
-                  <div class="install-chip" @click="copyText(installCmd, 'install')">
-                    <span class="install-prompt">$</span>
-                    <span class="install-text">{{ installCmd }}</span>
-                    <span class="install-copy-label">{{ copied ? 'copied' : 'copy' }}</span>
+                <div
+                  class="preview-window live-demo anim-rise"
+                  style="--d: 2"
+                  data-qa="live-demo"
+                  @mouseenter="onLiveDemoEnter"
+                >
+                  <div class="preview-chrome live-demo-chrome">
+                    <span class="preview-dot" /><span class="preview-dot" /><span class="preview-dot" />
+                    <div class="live-tabs" role="tablist" aria-label="Live demo views">
+                      <button
+                        v-for="tab in (['builder', 'preview', 'json'] as const)"
+                        :key="tab"
+                        type="button"
+                        role="tab"
+                        class="live-tab"
+                        :class="{ 'is-active': liveTab === tab }"
+                        :aria-selected="liveTab === tab"
+                        :data-qa="`live-tab-${tab}`"
+                        @click="selectLiveTab(tab)"
+                      >{{ tab === 'json' ? 'JSON' : tab === 'builder' ? 'Builder' : 'Preview' }}</button>
+                    </div>
+                    <span style="flex: 1" />
+                    <span class="caps preview-chrome-label">{{ liveStopped ? 'live demo' : 'auto-playing' }}</span>
                   </div>
-                  <a href="#quickstart" class="btn-solid">Read the docs</a>
-                </div>
-              </div>
 
-              <!-- Decorative field cards floating in hero -->
-              <div class="hero-deco" aria-hidden="true">
-                <div class="hero-deco-card hdc-1 anim-rise" style="--d: 2">
-                  <svg width="16" height="16"><use href="#fc-text" /></svg>
-                  <span>Text</span>
+                  <div v-show="liveTab === 'builder'" class="live-pane" data-qa="live-pane-builder">
+                    <FormBuilder v-model="liveFormData" />
+                  </div>
+                  <div v-show="liveTab === 'preview'" class="live-pane live-pane--padded" data-qa="live-pane-preview">
+                    <FormRenderer
+                      v-model="liveUserData"
+                      :form-data="liveFormData"
+                    />
+                    <div v-if="liveFormData.length === 0" class="live-empty">
+                      No fields yet &mdash; add some in the builder.
+                    </div>
+                  </div>
+                  <div v-show="liveTab === 'json'" class="live-pane" data-qa="live-pane-json">
+                    <pre class="demo-pre live-json">{{ liveJson }}</pre>
+                  </div>
                 </div>
-                <div class="hero-deco-card hdc-2 anim-rise" style="--d: 3">
-                  <svg width="16" height="16"><use href="#fc-checkbox-group" /></svg>
-                  <span>Checkbox</span>
-                </div>
-                <div class="hero-deco-card hdc-3 anim-rise" style="--d: 4">
-                  <svg width="16" height="16"><use href="#fc-select" /></svg>
-                  <span>Select</span>
-                </div>
+
               </div>
             </section>
 
@@ -764,73 +1045,15 @@ onUnmounted(() => {
               </div>
             </section>
 
-            <!-- ════ Live Preview ════ -->
-            <section class="section" id="live-preview">
-              <h2 class="section-title">Live preview</h2>
-              <p>
-                A faithful miniature of the builder.
-                The dashed canvas and dot grid are native to the library &mdash; fields snap in and reorder by drag.
-              </p>
-
-              <div class="preview-window">
-                <div class="preview-chrome">
-                  <span class="preview-dot" /><span class="preview-dot" /><span class="preview-dot" />
-                  <span style="flex: 1" />
-                  <span class="caps preview-chrome-label">live preview</span>
-                </div>
-
-                <div class="preview-body">
-                  <div class="preview-stage">
-                    <div
-                      v-for="(field, fi) in stageFields"
-                      :key="field.label"
-                      class="stage-card"
-                      :class="{ 'is-selected': fi === selectedPreviewField }"
-                    >
-                      <div class="stage-card-top">
-                        <span class="stage-card-type">
-                          <svg width="14" height="14"><use :href="`#fc-${field.type}`" /></svg>
-                          <span class="caps" style="font-size: 10px">{{ field.type }}</span>
-                        </span>
-                        <span class="stage-card-actions">
-                          <button class="stage-btn" :class="{ 'is-active': fi === selectedPreviewField }">&#x270E;</button>
-                          <button class="stage-btn">&#x29C9;</button>
-                          <button class="stage-btn">&#x2715;</button>
-                        </span>
-                      </div>
-                      <div class="stage-card-label">
-                        {{ field.label }}<span v-if="field.required" class="req-star">*</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="preview-controls">
-                    <div class="preview-controls-title">Add fields</div>
-                    <div class="preview-controls-grid">
-                      <div v-for="f in FIELD_TYPES.slice(0, 8)" :key="f.id" class="ctrl-chip">
-                        <svg width="13" height="13"><use :href="`#fc-${f.id}`" /></svg>
-                        <span>{{ f.label }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="preview-footer">
-                  <button class="btn-outline-sm">Clear</button>
-                  <button class="btn-accent-sm">Save</button>
-                </div>
+            <!-- Tip callout -->
+            <div class="callout callout--tip">
+              <span class="callout-badge callout-badge--tip">&#x2713;</span>
+              <div class="callout-body">
+                <strong style="color: var(--success)">Need a custom field type?</strong>
+                Call <code>useFieldRegistry().register(def, component)</code> before mounting.
+                Registered types appear in the control panel alongside the built-ins.
               </div>
-
-              <!-- Tip callout -->
-              <div class="callout callout--tip">
-                <span class="callout-badge callout-badge--tip">&#x2713;</span>
-                <div class="callout-body">
-                  <strong style="color: var(--success)">Need a custom field type?</strong>
-                  Call <code>useFieldRegistry().register(def, component)</code> before mounting.
-                  Registered types appear in the control panel alongside the built-ins.
-                </div>
-              </div>
-            </section>
+            </div>
 
             <!-- ════ Footer ════ -->
             <footer class="page-footer">
@@ -839,20 +1062,6 @@ onUnmounted(() => {
 
             </template>
           </article>
-
-          <!-- ── Page TOC ──────────────────────────────────── -->
-          <nav v-if="!activeExample" class="toc">
-            <div class="caps toc-heading">On this page</div>
-            <ul class="toc-list">
-              <li v-for="item in TOC_ITEMS" :key="item.id">
-                <a
-                  :href="`#${item.id}`"
-                  class="toc-link"
-                  :class="{ 'is-active': activeToc === item.label }"
-                >{{ item.label }}</a>
-              </li>
-            </ul>
-          </nav>
         </div>
       </main>
     </div>
@@ -1283,11 +1492,8 @@ textarea.demo-input {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 40px;
+  grid-template-columns: minmax(0, 1fr);
 }
-
-.content-grid.is-wide { grid-template-columns: minmax(0, 1fr); gap: 0; }
 
 .article { max-width: var(--max-prose); min-width: 0; }
 .article.is-wide { max-width: none; }
@@ -1302,7 +1508,7 @@ textarea.demo-input {
 .hero {
   position: relative;
   margin: 0 calc(-1 * var(--space-8));
-  padding: var(--space-9) var(--space-8) var(--space-10);
+  padding: var(--space-7) var(--space-8) var(--space-8);
   background:
     radial-gradient(ellipse 100% 80% at 80% 0%, rgba(255, 200, 51, 0.06) 0%, transparent 70%),
     linear-gradient(180deg, var(--surface-sunk) 0%, var(--paper) 100%);
@@ -1315,6 +1521,12 @@ textarea.demo-input {
   z-index: 2;
   max-width: 640px;
 }
+
+.hero-inner--wide { max-width: none; }
+
+.hero--demo .hero-pill { margin-bottom: var(--space-3); }
+.hero--demo .hero-lede { margin-bottom: var(--space-5); max-width: 720px; }
+.hero--demo .live-demo { margin: 0; }
 
 .hero-pill {
   display: inline-flex;
@@ -1341,15 +1553,6 @@ textarea.demo-input {
   text-transform: uppercase;
 }
 
-.hero-headline {
-  font-size: 54px;
-  line-height: 1.08;
-  letter-spacing: -0.025em;
-  font-weight: 700;
-  margin: 0 0 var(--space-5) 0 !important;
-  color: var(--ink);
-}
-
 .hero-lede {
   font-size: 18px;
   line-height: 1.6;
@@ -1357,118 +1560,6 @@ textarea.demo-input {
   margin: 0 0 var(--space-7) 0;
   max-width: 540px;
 }
-
-.hero-actions {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-/* Install chip */
-.install-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--surface);
-  border: var(--border);
-  border-radius: var(--radius-xs);
-  padding: 9px 14px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
-  user-select: all;
-}
-
-.install-chip:hover {
-  border-color: var(--line-2);
-  box-shadow: var(--shadow-sm);
-}
-
-.install-prompt { color: var(--ink-3); user-select: none; }
-.install-text { color: var(--ink); }
-.install-copy-label {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--ink-3);
-  padding: 2px 6px;
-  border-radius: 3px;
-  border: var(--border);
-  background: var(--paper);
-  user-select: none;
-  transition: color var(--dur-hover) var(--ease);
-}
-
-.install-chip:hover .install-copy-label { color: var(--ink); }
-
-/* Buttons */
-/* Note: prefixed with `a.` to match the (0,1,1) specificity of the
-   `.fc a` rule from the design-tokens CSS — without this, .fc a would
-   override `color`, leaving the solid button invisible (ink on ink). */
-a.btn-solid {
-  display: inline-flex;
-  align-items: center;
-  background: var(--ink);
-  color: var(--paper);
-  padding: 10px 20px;
-  border-radius: var(--radius-xs);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  transition: transform var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
-}
-
-a.btn-solid:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-  text-decoration: none;
-  color: var(--paper);
-}
-
-a.btn-solid:active { transform: translateY(0); }
-
-a.btn-text {
-  color: var(--ink-2);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 10px 4px;
-  transition: color var(--dur-hover) var(--ease);
-}
-
-a.btn-text:hover { color: var(--ink); text-decoration: none; }
-
-/* Hero floating cards */
-.hero-deco {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 320px;
-  pointer-events: none;
-}
-
-.hero-deco-card {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--surface);
-  border: var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
-.hdc-1 { top: 20%; right: 60px; transform: rotate(-2deg); }
-.hdc-2 { top: 48%; right: 20px; transform: rotate(1.5deg); }
-.hdc-3 { top: 72%; right: 80px; transform: rotate(-1deg); }
 
 /* ── Sections ─────────────────────────────────────────── */
 .section {
@@ -1784,209 +1875,111 @@ a.btn-text:hover { color: var(--ink); text-decoration: none; }
 
 .preview-chrome-label { font-size: 10px; }
 
-.preview-body {
-  display: grid;
-  grid-template-columns: 1fr 200px;
-  gap: 16px;
-  padding: 16px;
-  background: var(--paper);
+/* ── Live demo (tabs + real components) ───────────────── */
+.live-demo-chrome {
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.preview-stage {
-  border: var(--border-dashed);
-  border-radius: var(--radius-sm);
-  background:
-    radial-gradient(circle, rgba(211, 206, 193, 0.5) 1px, transparent 1px),
-    var(--surface-sunk);
-  background-size: 16px 16px, 100% 100%;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stage-card {
-  background: var(--surface);
-  border: var(--border);
-  box-shadow: var(--shadow-xs);
-  border-radius: var(--radius-xs);
-  padding: 10px 12px;
-  transition: all 300ms var(--ease);
-}
-
-.stage-card.is-selected {
-  border-color: var(--ink);
-  box-shadow: var(--shadow-focus);
-}
-
-.stage-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 5px;
-}
-
-.stage-card-type {
+.live-tabs {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-3);
-}
-
-.stage-card-actions {
-  display: flex;
   gap: 2px;
+  margin-left: var(--space-3);
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }
 
-.stage-btn {
+.live-tab {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
   border: none;
   background: transparent;
   color: var(--ink-3);
+  border-radius: 4px;
   cursor: pointer;
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-size: 12px;
-  transition: all var(--dur-hover) var(--ease);
+  transition: background var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease);
 }
 
-.stage-btn:hover {
-  background: var(--surface-sunk);
-  color: var(--ink);
-}
+.live-tab:hover { color: var(--ink); }
 
-.stage-btn.is-active {
+.live-tab.is-active {
   background: var(--ink);
   color: var(--paper);
 }
 
-.stage-card-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-}
-
-.req-star {
-  color: var(--danger);
-  margin-left: 2px;
-}
-
-/* Control panel in preview */
-.preview-controls {
-  border: var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 12px;
-  height: fit-content;
-}
-
-.preview-controls-title {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  color: var(--ink);
-}
-
-.preview-controls-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px;
-}
-
-.ctrl-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border: var(--border);
-  border-radius: var(--radius-xs);
+.live-pane {
   background: var(--paper);
-  font-size: 11px;
-  cursor: grab;
-  color: var(--ink-2);
-  transition: all var(--dur-hover) var(--ease);
+  min-height: 320px;
 }
 
-.ctrl-chip:hover {
-  border-color: var(--line-2);
-  color: var(--ink);
+.live-pane--padded {
+  padding: 16px;
 }
 
-.preview-footer {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding: 10px 16px 14px;
-  border-top: var(--border);
-  background: var(--paper);
-}
-
-.btn-outline-sm {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  padding: 7px 14px;
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: all var(--dur-hover) var(--ease);
-}
-
-.btn-outline-sm:hover { border-color: var(--ink); }
-
-.btn-accent-sm {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 14px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  transition: all var(--dur-hover) var(--ease);
-}
-
-.btn-accent-sm:hover { background: var(--accent-hover); }
-
-/* ── TOC ──────────────────────────────────────────────── */
-.toc {
-  position: sticky;
-  top: calc(var(--header-h) + var(--space-8));
-  font-size: 13px;
-  align-self: start;
-  padding-top: var(--space-8);
-}
-
-.toc-heading { margin-bottom: 12px; }
-
-.toc-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-left: 1px solid var(--line);
-}
-
-.toc-link {
-  display: block;
-  padding: 4px 14px;
-  margin-left: -1px;
+.live-empty {
+  margin-top: 8px;
   color: var(--ink-3);
-  border-left: 2px solid transparent;
-  text-decoration: none;
-  transition: all var(--dur-hover) var(--ease);
   font-size: 12.5px;
 }
 
-.toc-link:hover { color: var(--ink); }
+.live-json {
+  margin: 0;
+  border-radius: 0;
+  max-height: 360px;
+}
 
-.toc-link.is-active {
-  color: var(--ink);
+/* Animated ghost chip the virtual cursor "drags" onto the stage. */
+.live-fly-ghost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  box-shadow: 0 4px 10px rgba(17, 17, 17, 0.08);
+  font-family: var(--font-sans);
+  font-size: 12px;
   font-weight: 500;
-  border-left-color: var(--accent);
+  color: var(--ink);
+  cursor: grabbing;
+}
+
+[data-qa="live-pane-builder"] [data-qa="control-item"].is-fly-source {
+  opacity: 0.4;
+  transition: opacity 200ms var(--ease);
+}
+
+[data-qa="live-pane-builder"] [data-qa="builder-stage"].is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  background-color: rgba(255, 200, 51, 0.08);
+  transition: background-color 180ms var(--ease), outline-color 180ms var(--ease);
+}
+
+/* Virtual mouse cursor that drives the demo. */
+.live-cursor {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+  transition: filter 160ms var(--ease);
+}
+
+.live-cursor.is-grabbing {
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.32));
+}
+
+.live-cursor.is-grabbing svg path {
+  fill: #1d4ed8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-fly-ghost,
+  .live-cursor { display: none !important; }
 }
 
 /* ── Footer ───────────────────────────────────────────── */
@@ -2015,24 +2008,17 @@ a.btn-text:hover { color: var(--ink); text-decoration: none; }
   .shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .content-grid { grid-template-columns: 1fr; }
-  .toc { display: none; }
   .hero {
     margin: 0 calc(-1 * var(--space-5));
     padding: var(--space-8) var(--space-5);
   }
-  .hero-headline { font-size: 38px; }
-  .hero-deco { display: none; }
   .main { padding: 0 var(--space-5) var(--space-10); }
-  .preview-body { grid-template-columns: 1fr; }
   .hide-mobile { display: none; }
   .section-title::before { display: none; }
   .field-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
-  .hero-actions { flex-direction: column; align-items: stretch; }
-  .install-chip { justify-content: center; }
-  .btn-solid { text-align: center; justify-content: center; }
   .hdr-nav { display: none; }
   .hdr-search-input { width: 140px; }
   .hdr-search-input:focus { width: 180px; }
