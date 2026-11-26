@@ -170,6 +170,24 @@ export default ts.config(
       'yoda': 'error',
     },
   },
+  // Vite configs: `define` keys are compile-time globals and must stay UPPER_CASE
+  {
+    files: ['vite.config.ts', 'vite.demo.config.ts'],
+    rules: {
+      '@typescript-eslint/naming-convention': [
+        'error',
+        { selector: 'default', format: ['camelCase'] },
+        { selector: 'import', format: ['camelCase', 'PascalCase'] },
+        { selector: 'variable', format: ['camelCase', 'UPPER_CASE', 'PascalCase'] },
+        { selector: 'objectLiteralProperty', format: ['camelCase', 'UPPER_CASE'], leadingUnderscore: 'allowDouble', trailingUnderscore: 'allowDouble' },
+        {
+          selector: 'objectLiteralProperty',
+          format: null,
+          filter: { regex: '^[a-z]+(?:-[a-z]+)+$|[-/:]', match: true },
+        },
+      ],
+    },
+  },
   // Test files: relax rules that conflict with testing patterns
   {
     files: ['src/__tests__/**/*.ts'],
@@ -189,6 +207,7 @@ export default ts.config(
       'playwright.config.ts',
       'playwright-report/**',
       'test-results/**',
+      'test-lib/**',
     ],
   },
 )
