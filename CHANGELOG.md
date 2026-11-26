@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-04-22
+## [0.4.0] - 2026-11-26
+
+### Added
+
+- `FormBuilder` exposed `getFieldIds()` — field ids in stage order, for `removeField` / `toggleFieldEdit`.
+- `FormRenderer` exposed `validate(): Record<string, string[]>` (required, maxlength, number min/max; `{}` when valid). Invalid fields show their message and get `aria-invalid` / `aria-describedby`.
+- `FormRenderer` exposed `setData(formData)` and `getElement(fieldName)` (previously no-op stubs).
+- Buttons with `subtype: 'reset'` reset the answers to the field defaults; `subtype: 'submit'` submits the enclosing `<form>`.
+- `useFieldRegistry().register()` accepts custom field types (`ControlDefinition.type` is any string). A custom type added from the palette is saved as `{ type, label, name, access: false }`.
+- Validation messages are i18n keys (`validationRequired`, `validationMaxlength`, `validationMin`, `validationMax`) with `{label}` / `{maxlength}` / `{min}` / `{max}` placeholders; `useFormRenderer(t?)` takes an optional translator (defaults to `useI18n().t`).
+- CSS variable `--fb-focus-ring` sets the focus outline color of renderer controls (defaults to `var(--ink, #111)`).
+- Accessibility: renderer labels are linked to their controls, checkbox/radio groups are labelled groups, and palette controls can be added with the keyboard.
+
+### Changed
+
+- **Behavior:** `controlPosition` is now rendered as named — `'right'` (the default) puts the control panel on the right, `'left'` on the left. Apps that passed the opposite value to compensate must swap it.
+- **Behavior:** `useFieldRegistry` is one shared module-level registry. Types registered before mounting appear in every builder and renderer, and overrides of built-in types apply app-wide.
+- New fields get the data-contract defaults (`required`, `className`, `access`, `subtype`, `multiple`, `values[].selected`, ...); header and paragraph fields get no `name`. Existing JSON loads without gaining or losing keys.
+- Copied fields get a unique `name` and emit `field-added`.
+- `field-selected` emits `{ fieldId: null }` when the edit panel closes.
+- The exposed `save()` now emits `save` as well as returning the form data.
+- `FormBuilder` no longer emits `update:modelValue` on mount.
+- Dragging a field off the stage no longer deletes it.
+- `editOnAdd` and `fieldRemoveWarn` are implemented (`fieldRemoveWarn` asks with `window.confirm`).
+- Renderer buttons no longer write `"clicked"` into the user data.
+- The renderer "Other" option and autocomplete store the typed text as the answer (no `other-<name>` value).
+
+## [0.3.0] - 2026-04-23
 
 ### Added
 
@@ -47,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - FormBuilder component with drag-and-drop field creation
 - FormRenderer component for displaying and collecting form data
-- 16 built-in field types (text, number, date, select, checkbox-group, radio-group, textarea, file, autocomplete, button, header, paragraph, hidden, checkbox)
+- 14 built-in field types (text, number, date, select, checkbox-group, radio-group, textarea, file, autocomplete, button, header, paragraph, hidden, checkbox)
 - v-model support on both builder and renderer
 - BuilderOptions for customization (control position, disabled fields/attrs, action buttons, i18n)
 - Composables: useFormBuilder, useFormRenderer, useFieldRegistry, useDragDrop, useI18n
