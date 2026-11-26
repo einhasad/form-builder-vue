@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { h, ref, defineComponent } from 'vue'
+import { h, ref, defineComponent, nextTick, type Ref } from 'vue'
 import BuilderStage from '../components/BuilderStage.vue'
 import BuilderField from '../components/BuilderField.vue'
 import { provideBuilderState } from '../state/builderState'
@@ -173,7 +173,7 @@ describe('BuilderStage', () => {
     expect(stage.emitted('field-reorder')).toBeTruthy()
     const payload = stage.emitted('field-reorder')[0][0] as { fromIndex: number; toIndex: number }
     expect(payload.fromIndex).toBe(0)
-    expect(payload.toIndex).toBe(1)
+    expect(payload.toIndex).toBe(0)
   })
 
   it('emits control-dropped on drop with control: data', async () => {
@@ -388,7 +388,7 @@ describe('BuilderStage', () => {
     await fieldEl.trigger('dragend')
   })
 
-  it('emits field-removed when a field is dragged out of the stage', async () => {
+  it('does not emit field-removed when a field is dragged out of the stage', async () => {
     const wrapper = createWrapper([textField])
     const stage = wrapper.findComponent(BuilderStage)
     const { dt } = createMockDataTransfer()
@@ -398,10 +398,7 @@ describe('BuilderStage', () => {
     await fieldEl.trigger('dragstart', { dataTransfer: dt })
     await fieldEl.trigger('dragend', { dataTransfer: dt })
 
-    expect(stage.emitted('field-removed')).toBeTruthy()
-    const payload = stage.emitted('field-removed')[0][0] as { fieldId: string; field: FormDataField }
-    expect(payload.fieldId).toBe('name-field')
-    expect(payload.field).toEqual(textField)
+    expect(stage.emitted('field-removed')).toBeFalsy()
   })
 
   it('does not emit field-removed when drop succeeded on the stage', async () => {
@@ -994,5 +991,175 @@ describe('BuilderStage', () => {
       await fieldWrapper.trigger('dragleave', { relatedTarget: null })
       expect(fieldWrapper.classes()).not.toContain('drop-left')
     })
+  })
+})
+
+describe('BuilderStage QA fixes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function named(name: string, rowId?: string): FormDataField {
+    const field: FormDataField = { type: FieldType.Text, label: name, name }
+    if (rowId !== undefined) {
+      field.rowId = rowId
+    }
+    return field
+  }
+
+  function mountReactive(initial: FormDataField[]): { wrapper: ReturnType<typeof mount>; fields: Ref<FormDataField[]> } {
+    const fields = ref<FormDataField[]>(initial)
+    const ParentComponent = defineComponent({
+      setup() {
+        provideBuilderRegistry({
+          getAllTypes: () => [] as string[],
+          getDefinition: () => undefined,
+          resolveComponent: () => undefined,
+          getDefaultAttrs: () => [] as string[],
+          getSubtypes: () => [] as string[],
+          isActive: () => false,
+        })
+      },
+      render() {
+        return h(BuilderStage, { fields: fields.value, selectedFieldId: null, disabledAttrs: [] })
+      },
+    })
+    return { wrapper: mount(ParentComponent, { attachTo: document.body }), fields }
+  }
+
+  async function dropAbove(wrapper: ReturnType<typeof mount>, targetIndex: number, data: string): Promise<void> {
+    const { dt } = createMockDataTransfer()
+    dt.setData('text/plain', data)
+    await wrapper.findAll('[data-qa="stage-field-wrapper"]')[targetIndex]?.trigger('drop', {
+      dataTransfer: dt,
+      preventDefault: () => { /* noop */ },
+    })
+  }
+
+  it('empty-stage hint does not name a panel side', () => {
+    const wrapper = createWrapper()
+
+    const hint = wrapper.find('[data-qa="stage-empty"]').text()
+    expect(hint).not.toMatch(/\bright\b|\bleft\b/i)
+  })
+
+  it('renders exactly the model fields when non-adjacent groups share a rowId, also after clearing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { /* silence */ })
+    const { wrapper, fields } = mountReactive([named('a', 'r'), named('b', 'r'), named('c'), named('d')])
+
+    fields.value = [named('a', 'r'), named('c'), named('b', 'r'), named('d')]
+    await nextTick()
+    expect(wrapper.findAll('[data-qa="builder-field"]').map((field) => field.text())).toEqual(
+      expect.arrayContaining(['a', 'c', 'b', 'd'].map((label) => expect.stringContaining(label) as unknown as string)),
+    )
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(4)
+
+    fields.value = [named('c'), named('b', 'r'), named('d'), named('a', 'r')]
+    await nextTick()
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(4)
+
+    fields.value = []
+    await nextTick()
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-qa="stage-row"]')).toHaveLength(0)
+    expect(warn.mock.calls.some((call) => String(call[0]).includes('Duplicate keys'))).toBe(false)
+  })
+
+  it('moving a field down onto the above-zone of a later field lands right before it', async () => {
+    const wrapper = createWrapper([named('a'), named('b'), named('c')])
+    const stage = wrapper.findComponent(BuilderStage)
+
+    await dropAbove(wrapper, 2, 'field:a')
+
+    expect(stage.emitted('field-reorder')?.[0]?.[0]).toEqual({ fromIndex: 0, toIndex: 1 })
+  })
+
+  it('moving a field up onto the above-zone keeps the target index', async () => {
+    const wrapper = createWrapper([named('a'), named('b'), named('c')])
+    const stage = wrapper.findComponent(BuilderStage)
+
+    await dropAbove(wrapper, 0, 'field:c')
+
+    expect(stage.emitted('field-reorder')?.[0]?.[0]).toEqual({ fromIndex: 2, toIndex: 0 })
+  })
+
+  it('a field dropped above a row member goes above the whole row', async () => {
+    const wrapper = createWrapper([named('a', 'r'), named('b', 'r'), named('c', 'r'), named('x')])
+    const stage = wrapper.findComponent(BuilderStage)
+
+    await dropAbove(wrapper, 2, 'field:x')
+
+    expect(stage.emitted('field-reorder')?.[0]?.[0]).toEqual({ fromIndex: 3, toIndex: 0 })
+  })
+
+  it('a control dropped above a row member is inserted above the whole row', async () => {
+    const wrapper = createWrapper([named('x'), named('a', 'r'), named('b', 'r'), named('c', 'r')])
+    const stage = wrapper.findComponent(BuilderStage)
+
+    await dropAbove(wrapper, 3, 'control:text')
+
+    expect(stage.emitted('control-dropped')?.[0]?.[0]).toMatchObject({ type: 'text', index: 1 })
+  })
+
+  it('a cancelled drag (dropEffect none) keeps the field', async () => {
+    const wrapper = createWrapper([textField])
+    const stage = wrapper.findComponent(BuilderStage)
+    const { dt } = createMockDataTransfer()
+    dt.dropEffect = 'none'
+
+    const fieldEl = wrapper.find('[data-qa="builder-field"]')
+    await fieldEl.trigger('dragstart', { dataTransfer: dt })
+    await fieldEl.trigger('dragend', { dataTransfer: dt })
+
+    expect(stage.emitted('field-removed')).toBeUndefined()
+    expect(fieldEl.classes()).not.toContain('is-dragging')
+  })
+
+  it('emits field-selected null when the selected field is toggled off', async () => {
+    const selected = ref<string | null>('name-field')
+    const wrapper = createWrapper([textField], null, { fields: ref([textField]), selectedFieldId: selected, fieldIdCounter: ref(0) })
+    const stage = wrapper.findComponent(BuilderStage)
+
+    await wrapper.find('[data-qa="field-edit-btn"]').trigger('click')
+
+    expect(stage.emitted('field-selected')?.[0]?.[0]).toEqual({ fieldId: null })
+  })
+
+  it('emits field-selected null without builder state when the prop-selected field is toggled', async () => {
+    const ParentComponent = defineComponent({
+      render() {
+        return h(BuilderStage, { fields: [textField], selectedFieldId: 'name-field', disabledAttrs: [] })
+      },
+    })
+    const wrapper = mount(ParentComponent)
+
+    await wrapper.find('[data-qa="field-edit-btn"]').trigger('click')
+
+    expect(wrapper.findComponent(BuilderStage).emitted('field-selected')?.[0]?.[0]).toEqual({ fieldId: null })
+  })
+
+  it('ignores a remove request for a field that is no longer on the stage', () => {
+    const wrapper = createWrapper([textField])
+    const stage = wrapper.findComponent(BuilderStage)
+
+    const fieldVm = wrapper.findComponent(BuilderField).vm as unknown as { $emit: (event: string, payload: unknown) => void }
+    fieldVm.$emit('remove', { fieldId: 'ghost-field' })
+
+    expect(stage.emitted('field-removed')).toBeFalsy()
+  })
+
+  it('identifies nameless fields by a synthetic id when no builder state is provided', () => {
+    const ParentComponent = defineComponent({
+      render() {
+        return h(BuilderStage, {
+          fields: [{ type: FieldType.Header, label: 'Title', subtype: 'h1', access: false }],
+          selectedFieldId: null,
+          disabledAttrs: [],
+        })
+      },
+    })
+    const wrapper = mount(ParentComponent)
+
+    expect(wrapper.findComponent(BuilderField).props('fieldId')).toBe('__auto_0')
   })
 })

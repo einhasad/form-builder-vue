@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import FormBuilder from '../components/FormBuilder.vue'
+import BuilderControlPanel from '../components/BuilderControlPanel.vue'
+import BuilderStage from '../components/BuilderStage.vue'
 import { FormBuilder as FormBuilderExport } from '../index'
 import { FieldType } from '../types/field-types'
+import { useFieldRegistry } from '../composables/useFieldRegistry'
 import type { FormDataField } from '../types/form-data'
 
 /** Helper to get the last emitted modelValue. */
@@ -927,5 +930,384 @@ describe('FormBuilder', () => {
       expect(model[0]?.label).toBe('Yes/No')
       expect(model[0]?.values?.[0]?.selected).toBe(true)
     })
+  })
+})
+
+function emitFrom(component: { vm: unknown }, event: string, payload: unknown): void {
+  (component.vm as { $emit: (name: string, value: unknown) => void }).$emit(event, payload)
+}
+
+async function addViaPalette(wrapper: ReturnType<typeof mount>, type: string): Promise<void> {
+  emitFrom(wrapper.findComponent(BuilderControlPanel), 'control-click', { type })
+  await flushPromises()
+}
+
+const CONTRACT_EXAMPLE: FormDataField[] = [
+  { type: FieldType.Number, required: false, label: 'Number', className: 'form-control', name: 'number-1776565619103-0', access: false, value: '3213', subtype: 'number' },
+  { type: FieldType.File, required: false, label: 'File Upload', className: 'form-control', name: 'file-1776565622053-0', access: false, multiple: false },
+  { type: FieldType.Autocomplete, required: false, label: 'Autocomplete', className: 'form-control', name: 'autocomplete-1776563798865-0', access: false, requireValidOption: false, values: [{ label: 'Option 1', value: 'option-1', selected: true }, { label: 'Option 2', value: 'option-2', selected: false }, { label: 'Option 3', value: 'option-3', selected: false }] },
+  { type: FieldType.CheckboxGroup, required: false, label: 'Checkbox Group', description: '123123', toggle: false, inline: false, className: '123123', name: 'checkbox-group-1776565637569-0', access: false, other: false, values: [{ label: 'Option 1', value: 'option-13123123', selected: true }] },
+  { type: FieldType.Select, required: false, label: 'Select', className: 'form-control', name: 'select-1776565631102-0', access: false, multiple: false, values: [{ label: 'Option 1', value: 'option-1', selected: false }, { label: 'Option 2', value: 'option-2', selected: true }, { label: 'Option 3', value: 'option-3', selected: false }] },
+  { type: FieldType.Button, label: 'Button', subtype: 'button', className: 'btn-default btn', name: 'button-1776563800475-0', access: false, style: 'default' },
+  { type: FieldType.Date, required: false, label: 'Date Field', description: '3213', placeholder: '21312', className: 'form-control', name: 'date-1776563802017-0', access: false, value: '312321', subtype: 'date', min: '3213', max: '321' },
+  { type: FieldType.Header, subtype: 'h1', label: 'Header', access: false },
+  { type: FieldType.Number, required: false, label: 'Number', className: 'form-control', name: 'number-1776563805360-0', access: false, value: '3213', subtype: 'number' },
+  { type: FieldType.Paragraph, subtype: 'p', label: 'Paragraph3123', className: '312321', access: false },
+  { type: FieldType.Text, required: false, label: 'Text Field', className: 'form-control', name: 'text-1776563808602-0', access: false, value: '3213123', subtype: 'text' },
+]
+
+describe('FormBuilder controlPosition', () => {
+  it('defaults to the panel on the right', () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+    const classes = wrapper.find('.builder-layout').classes()
+    expect(classes).toContain('control-right')
+    expect(classes).not.toContain('control-left')
+  })
+
+  it('marks the layout control-left for the left position', () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [], options: { controlPosition: 'left' } } })
+
+    const classes = wrapper.find('.builder-layout').classes()
+    expect(classes).toContain('control-left')
+    expect(classes).not.toContain('control-right')
+  })
+})
+
+describe('FormBuilder new field contract defaults', () => {
+  const NAME = expect.stringMatching(/^[a-z-]+-\d+-0$/) as unknown as string
+  const option = (n: number): { label: string; value: string; selected: boolean } => ({ label: `Option ${String(n)}`, value: `option-${String(n)}`, selected: false })
+
+  const expectedByType: Record<string, Record<string, unknown>> = {
+    [FieldType.Autocomplete]: { type: 'autocomplete', required: false, label: 'Autocomplete', className: 'form-control', name: NAME, access: false, requireValidOption: false, values: [option(1), option(2), option(3)] },
+    [FieldType.Button]: { type: 'button', label: 'Button', subtype: 'button', className: 'btn-default btn', name: NAME, access: false, style: 'default' },
+    [FieldType.CheckboxGroup]: { type: 'checkbox-group', required: false, label: 'Checkbox Group', toggle: false, inline: false, name: NAME, access: false, other: false, values: [option(1), option(2)] },
+    [FieldType.Checkbox]: { type: 'checkbox', required: false, label: 'Checkbox', name: NAME, access: false, toggle: false },
+    [FieldType.Date]: { type: 'date', required: false, label: 'Date Field', className: 'form-control', name: NAME, access: false, subtype: 'date' },
+    [FieldType.File]: { type: 'file', required: false, label: 'File Upload', className: 'form-control', name: NAME, access: false, multiple: false },
+    [FieldType.Header]: { type: 'header', subtype: 'h1', label: 'Header', access: false },
+    [FieldType.Hidden]: { type: 'hidden', label: 'Hidden Input', name: NAME, access: false },
+    [FieldType.Number]: { type: 'number', required: false, label: 'Number', className: 'form-control', name: NAME, access: false, subtype: 'number' },
+    [FieldType.Paragraph]: { type: 'paragraph', subtype: 'p', label: 'Paragraph', access: false },
+    [FieldType.RadioGroup]: { type: 'radio-group', required: false, label: 'Radio Group', inline: false, name: NAME, access: false, other: false, values: [option(1), option(2)] },
+    [FieldType.Select]: { type: 'select', required: false, label: 'Select', className: 'form-control', name: NAME, access: false, multiple: false, values: [option(1), option(2), option(3)] },
+    [FieldType.Text]: { type: 'text', required: false, label: 'Text Field', className: 'form-control', name: NAME, access: false, subtype: 'text' },
+    [FieldType.Textarea]: { type: 'textarea', required: false, label: 'Text Area', className: 'form-control', name: NAME, access: false, subtype: 'textarea' },
+  }
+
+  for (const type of Object.values(FieldType)) {
+    it(`creates a ${type} field with the contract keys in contract order`, async () => {
+      const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+      await addViaPalette(wrapper, type)
+
+      const field = getLastModelValue(wrapper)[0]
+      const expected = expectedByType[type] ?? {}
+      expect(field).toEqual(expected)
+      expect(Object.keys(field ?? {})).toEqual(Object.keys(expected))
+    })
+  }
+})
+
+describe('FormBuilder data contract round-trip', () => {
+  it('does not emit update:modelValue on mount', () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: CONTRACT_EXAMPLE } })
+
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('returns loaded JSON byte-identical', () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: CONTRACT_EXAMPLE } })
+
+    const vm = wrapper.vm as unknown as { getData: () => FormDataField[] }
+    expect(JSON.stringify(vm.getData())).toBe(JSON.stringify(CONTRACT_EXAMPLE))
+  })
+
+  it('leaves the other loaded fields byte-identical after an edit', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: CONTRACT_EXAMPLE } })
+    const stage = wrapper.findComponent(BuilderStage)
+    const vm = wrapper.vm as unknown as { getData: () => FormDataField[] }
+    const fieldIds = wrapper.findAllComponents({ name: 'BuilderField' }).map((field) => field.props('fieldId') as string)
+    emitFrom(stage, 'field-updated', { fieldId: fieldIds[0], updates: { label: 'Changed' } })
+    await flushPromises()
+
+    const data = vm.getData()
+    expect(data[0]?.label).toBe('Changed')
+    expect(JSON.stringify(data.slice(1))).toBe(JSON.stringify(CONTRACT_EXAMPLE.slice(1)))
+  })
+})
+
+describe('FormBuilder unique names', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('gives fields added in the same millisecond unique names', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1776563808602)
+    const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+    await addViaPalette(wrapper, FieldType.Text)
+    await addViaPalette(wrapper, FieldType.Text)
+    await addViaPalette(wrapper, FieldType.Text)
+
+    const names = getLastModelValue(wrapper).map((field) => field.name)
+    expect(names).toEqual(['text-1776563808602-0', 'text-1776563808602-1', 'text-1776563808602-2'])
+  })
+
+  it('gives every copy a unique name and emits field-added for it', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [{ type: FieldType.Text, label: 'A', name: 'a' }] } })
+
+    await wrapper.find('[data-qa="field-copy-btn"]').trigger('click')
+    await wrapper.findAll('[data-qa="field-copy-btn"]')[0]?.trigger('click')
+    await flushPromises()
+
+    const names = getLastModelValue(wrapper).map((field) => field.name)
+    expect(new Set(names).size).toBe(3)
+    const added = (wrapper.emitted('field-added') ?? []).map((args) => args[0] as { fieldId: string; field: FormDataField })
+    expect(added.map((payload) => payload.field.name)).toEqual(['a-copy', 'a-copy-2'])
+    expect(added[0]?.fieldId).toMatch(/^frmb-/)
+  })
+})
+
+describe('FormBuilder reorder keeps rows consistent', () => {
+  it('a field dropped above another leaves its row and its old row-mate loses the rowId', async () => {
+    const wrapper = mount(FormBuilder, {
+      props: {
+        modelValue: [
+          { type: FieldType.Text, label: 'A', name: 'a', rowId: 'r' },
+          { type: FieldType.Text, label: 'B', name: 'b', rowId: 'r' },
+          { type: FieldType.Text, label: 'C', name: 'c' },
+        ],
+      },
+    })
+
+    emitFrom(wrapper.findComponent(BuilderStage), 'field-reorder', { fromIndex: 0, toIndex: 1 })
+    await flushPromises()
+
+    const model = getLastModelValue(wrapper)
+    expect(model.map((field) => field.name)).toEqual(['b', 'a', 'c'])
+    expect(model.some((field) => 'rowId' in field)).toBe(false)
+    expect(wrapper.emitted('field-moved')?.[0]?.[0]).toMatchObject({ fromIndex: 0, toIndex: 1 })
+  })
+
+  it('a field dropped on a side joins the row', async () => {
+    const wrapper = mount(FormBuilder, {
+      props: {
+        modelValue: [
+          { type: FieldType.Text, label: 'A', name: 'a' },
+          { type: FieldType.Text, label: 'B', name: 'b', rowId: 'r' },
+          { type: FieldType.Text, label: 'C', name: 'c', rowId: 'r' },
+        ],
+      },
+    })
+
+    emitFrom(wrapper.findComponent(BuilderStage), 'field-reorder', { fromIndex: 0, toIndex: 2, rowId: 'r' })
+    await flushPromises()
+
+    expect(getLastModelValue(wrapper).map((field) => `${field.name ?? ''}@${field.rowId ?? '-'}`)).toEqual(['b@r', 'c@r', 'a@r'])
+  })
+})
+
+describe('FormBuilder editOnAdd and fieldRemoveWarn', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('opens the edit panel of a new field when editOnAdd is on', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [], options: { editOnAdd: true } } })
+
+    await addViaPalette(wrapper, FieldType.Text)
+
+    expect(wrapper.findAll('[data-qa="edit-panel"]')).toHaveLength(1)
+    const added = wrapper.emitted('field-added')?.[0]?.[0] as { fieldId: string }
+    expect(wrapper.emitted('field-selected')?.[0]?.[0]).toEqual({ fieldId: added.fieldId })
+  })
+
+  it('keeps the edit panel closed on add by default', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+    await addViaPalette(wrapper, FieldType.Text)
+
+    expect(wrapper.findAll('[data-qa="edit-panel"]')).toHaveLength(0)
+  })
+
+  it('keeps the field when the remove confirm is declined', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = mount(FormBuilder, {
+      props: { modelValue: [{ type: FieldType.Text, label: 'A', name: 'a' }], options: { fieldRemoveWarn: true } },
+    })
+
+    await wrapper.find('[data-qa="field-remove-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('Are you sure you want to remove this field?')
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(1)
+    expect(wrapper.emitted('field-removed')).toBeUndefined()
+  })
+
+  it('removes the field when the remove confirm is accepted', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = mount(FormBuilder, {
+      props: { modelValue: [{ type: FieldType.Text, label: 'A', name: 'a' }], options: { fieldRemoveWarn: true } },
+    })
+
+    await wrapper.find('[data-qa="field-remove-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(0)
+    expect(wrapper.emitted('field-removed')).toHaveLength(1)
+  })
+
+  it('does not ask for confirmation when fieldRemoveWarn is off', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    const wrapper = mount(FormBuilder, { props: { modelValue: [{ type: FieldType.Text, label: 'A', name: 'a' }] } })
+
+    await wrapper.find('[data-qa="field-remove-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.findAll('[data-qa="builder-field"]')).toHaveLength(0)
+  })
+})
+
+describe('FormBuilder events', () => {
+  it('exposed save() emits save with the form data', () => {
+    const fields = [{ type: FieldType.Text, label: 'A', name: 'a' }]
+    const wrapper = mount(FormBuilder, { props: { modelValue: fields } })
+
+    const vm = wrapper.vm as unknown as { save: () => FormDataField[] }
+    const data = vm.save()
+
+    expect(data).toEqual(fields)
+    expect(wrapper.emitted('save')?.[0]?.[0]).toEqual({ formData: fields })
+  })
+
+  it('field-selected reports null when the open field is closed again', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [{ type: FieldType.Text, label: 'A', name: 'a' }] } })
+
+    await wrapper.find('[data-qa="field-edit-btn"]').trigger('click')
+    await wrapper.find('[data-qa="field-edit-btn"]').trigger('click')
+
+    const selected = (wrapper.emitted('field-selected') ?? []).map((args) => args[0] as { fieldId: string | null })
+    expect(selected[0]?.fieldId).toMatch(/^frmb-/)
+    expect(selected[1]).toEqual({ fieldId: null })
+  })
+})
+
+describe('FormBuilder name-based field ids from external callers', () => {
+  const fields = (): FormDataField[] => [
+    { type: FieldType.Text, label: 'A', name: 'a' },
+    { type: FieldType.Text, label: 'B', name: 'b' },
+  ]
+
+  it('removes a field addressed by name', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: fields() } })
+
+    emitFrom(wrapper.findComponent(BuilderStage), 'field-removed', { fieldId: 'b', field: fields()[1] })
+    await flushPromises()
+
+    expect(getLastModelValue(wrapper).map((field) => field.name)).toEqual(['a'])
+  })
+
+  it('copies a field addressed by name', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: fields() } })
+
+    emitFrom(wrapper.findComponent(BuilderStage), 'field-copied', { fieldId: 'a' })
+    await flushPromises()
+
+    expect(getLastModelValue(wrapper).map((field) => field.name)).toEqual(['a', 'a-copy', 'b'])
+  })
+
+  it('ignores a copy request for an unknown field', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: fields() } })
+
+    emitFrom(wrapper.findComponent(BuilderStage), 'field-copied', { fieldId: 'missing' })
+    await flushPromises()
+
+    expect(wrapper.emitted('field-added')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+})
+
+describe('FormBuilder exposed getFieldIds', () => {
+  it('returns internal ids in field order that removeField accepts', () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+    const vm = wrapper.vm as unknown as {
+      setData: (data: FormDataField[]) => void
+      getFieldIds: () => string[]
+      removeField: (id: string) => boolean
+      getData: () => FormDataField[]
+    }
+    vm.setData([
+      { type: FieldType.Text, label: 'First', name: 'first' },
+      { type: FieldType.Text, label: 'Second', name: 'second' },
+    ])
+
+    const ids = vm.getFieldIds()
+    expect(ids).toHaveLength(2)
+    expect(vm.removeField(ids[0] ?? '')).toBe(true)
+
+    expect(vm.getData().map((field) => field.name)).toEqual(['second'])
+  })
+})
+
+describe('FormBuilder shared field registry', () => {
+  it('keeps an override of a built-in type registered before mount', () => {
+    const registry = useFieldRegistry()
+    const original = registry.getDefinition(FieldType.Text)
+    const originalComponent = registry.resolveComponent(FieldType.Text)
+    expect(original).toBeDefined()
+    if (!original) {
+      return
+    }
+    registry.register({ ...original, label: 'Custom Text' })
+
+    try {
+      mount(FormBuilder, { props: { modelValue: [] } })
+
+      expect(registry.getDefinition(FieldType.Text)?.label).toBe('Custom Text')
+    } finally {
+      registry.register(original, originalComponent)
+    }
+  })
+})
+
+describe('FormBuilder custom registered types', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('adds a custom type from the palette as a generic contract field', async () => {
+    const registry = useFieldRegistry()
+    const textDefinition = registry.getDefinition(FieldType.Text)
+    expect(textDefinition).toBeDefined()
+    if (!textDefinition) {
+      return
+    }
+    registry.register({ ...textDefinition, type: 'star-rating', label: 'Star Rating' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => { /* collect */ })
+
+    try {
+      vi.spyOn(Date, 'now').mockReturnValue(1776563808602)
+      const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+      await addViaPalette(wrapper, 'star-rating')
+
+      const vm = wrapper.vm as unknown as { getData: () => FormDataField[] }
+      expect(vm.getData()).toEqual([{ type: 'star-rating', label: 'Star Rating', name: 'star-rating-1776563808602-0', access: false }])
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      registry.definitions.value.delete('star-rating')
+    }
+  })
+})
+
+describe('FormBuilder labels for types without a registered definition', () => {
+  it('falls back to the type name', async () => {
+    const wrapper = mount(FormBuilder, { props: { modelValue: [] } })
+
+    await addViaPalette(wrapper, 'unregistered-type')
+
+    expect(getLastModelValue(wrapper)[0]?.label).toBe('unregistered-type')
   })
 })

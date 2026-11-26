@@ -348,3 +348,154 @@ describe('useFormBuilder', () => {
     expect(builder.fields.value).toHaveLength(1)
   })
 })
+
+describe('useFormBuilder unique names', () => {
+  it('generateName gives unique names for fields added in the same millisecond', () => {
+    const builder = useFormBuilder()
+    const names: string[] = []
+    for (let i = 0; i < 3; i += 1) {
+      const name = builder.generateName('text')
+      names.push(name)
+      builder.addField({ type: FieldType.Text, label: 'T', name })
+    }
+
+    expect(new Set(names).size).toBe(3)
+    expect(names[0]).toMatch(/^text-\d+-0$/)
+  })
+
+  it('gives every copy of the same field a unique name', () => {
+    const builder = useFormBuilder()
+    const id = builder.addField(textField)
+
+    builder.duplicateField(id)
+    builder.duplicateField(id)
+    builder.duplicateField(id)
+
+    const names = builder.fields.value.map((field) => field.name)
+    expect(names).toEqual(['name-field', 'name-field-copy-3', 'name-field-copy-2', 'name-field-copy'])
+  })
+})
+
+describe('useFormBuilder rows', () => {
+  function rowField(name: string, rowId?: string): FormDataField {
+    const field: FormDataField = { type: FieldType.Text, label: name, name }
+    if (rowId !== undefined) {
+      field.rowId = rowId
+    }
+    return field
+  }
+
+  function layout(builder: ReturnType<typeof useFormBuilder>): string[] {
+    return builder.fields.value.map((field) => `${field.name ?? ''}@${field.rowId ?? '-'}`)
+  }
+
+  it('copies a field of a non-full row into the same row', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r')])
+    const id = builder.getFieldIdByIndex(0) ?? ''
+
+    builder.duplicateField(id)
+
+    expect(layout(builder)).toEqual(['a@r', 'a-copy@r', 'b@r'])
+  })
+
+  it('places a copy from a full row on its own row after the row', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('c', 'r'), rowField('d')])
+    const id = builder.getFieldIdByIndex(1) ?? ''
+
+    builder.duplicateField(id)
+
+    expect(layout(builder)).toEqual(['a@r', 'b@r', 'c@r', 'b-copy@-', 'd@-'])
+  })
+
+  it('moveFieldToRow without rowId takes the field out of its row', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('c', 'r'), rowField('d')])
+
+    builder.moveFieldToRow(0, 3)
+
+    expect(layout(builder)).toEqual(['b@r', 'c@r', 'd@-', 'a@-'])
+  })
+
+  it('moveFieldToRow drops the rowId of a row-mate left alone', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('c')])
+
+    builder.moveFieldToRow(0, 2)
+
+    expect(layout(builder)).toEqual(['b@-', 'c@-', 'a@-'])
+  })
+
+  it('moveFieldToRow joins the target row', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a'), rowField('b', 's'), rowField('c', 's')])
+
+    builder.moveFieldToRow(0, 2, 's')
+
+    expect(layout(builder)).toEqual(['b@s', 'c@s', 'a@s'])
+  })
+
+  it('moveFieldToRow gives a split-off group of the same row a fresh rowId', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('x'), rowField('y', 'r'), rowField('z', 'r')])
+
+    builder.moveFieldToRow(2, 2)
+
+    const [a, b, x, y, z] = builder.fields.value
+    expect(a?.rowId).toBe('r')
+    expect(b?.rowId).toBe('r')
+    expect(x?.rowId).toBeUndefined()
+    expect(y?.rowId).toBeTypeOf('string')
+    expect(y?.rowId).not.toBe('r')
+    expect(z?.rowId).toBe(y?.rowId)
+  })
+
+  it('moveFieldToRow splits a row that grew past the size limit', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('c', 'r'), rowField('d', 'r'), rowField('e')])
+
+    builder.moveFieldToRow(4, 4)
+
+    const rowIds = builder.fields.value.map((field) => field.rowId)
+    expect(rowIds.slice(0, 3)).toEqual(['r', 'r', 'r'])
+    expect(rowIds[3]).toBeUndefined()
+  })
+
+  it('moveFieldToRow between two row members breaks that row up', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('x')])
+
+    builder.moveFieldToRow(2, 1)
+
+    expect(layout(builder)).toEqual(['a@-', 'x@-', 'b@-'])
+  })
+
+  it('moveFieldToRow ignores out-of-range indices', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r')])
+
+    builder.moveFieldToRow(5, 0)
+    builder.moveFieldToRow(0, 5)
+
+    expect(layout(builder)).toEqual(['a@r', 'b@r'])
+  })
+
+  it('removeField drops the rowId of a row-mate left alone', () => {
+    const builder = useFormBuilder()
+    builder.setData([rowField('a', 'r'), rowField('b', 'r'), rowField('c')])
+
+    builder.removeField(builder.getFieldIdByIndex(0) ?? '')
+
+    expect(layout(builder)).toEqual(['b@-', 'c@-'])
+  })
+
+  it('setData keeps loaded rowIds untouched', () => {
+    const builder = useFormBuilder()
+    const loaded = [rowField('a', 'r'), rowField('b'), rowField('c', 'r')]
+
+    builder.setData(loaded)
+
+    expect(builder.getData()).toEqual(loaded)
+  })
+})

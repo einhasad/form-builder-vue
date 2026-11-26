@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, watch, onMounted } from 'vue'
-import type { FormDataField } from '../types/form-data'
+import type { FormDataField, FormValueOption } from '../types/form-data'
 import { FieldType } from '../types/field-types'
 import type { BuilderOptions } from '../types/builder-options'
 import type { BuilderState } from '../types/builder-state'
@@ -13,7 +13,6 @@ import { useFormBuilder } from '../composables/useFormBuilder'
 import { useFieldRegistry } from '../composables/useFieldRegistry'
 import { useI18n } from '../composables/useI18n'
 import { useDragDrop } from '../composables/useDragDrop'
-import { registerBuiltinControls } from './controls/register'
 import BuilderStage from './BuilderStage.vue'
 import BuilderControlPanel from './BuilderControlPanel.vue'
 
@@ -42,9 +41,6 @@ const builder = useFormBuilder()
 const registry = useFieldRegistry()
 const i18n = useI18n()
 const dragDrop = useDragDrop()
-
-// Register all built-in controls
-registerBuiltinControls(registry.register)
 
 // Builder state for provide/inject. Exposing `internalFields` lets descendants
 // (notably `BuilderStage`) identify fields by their stable `internalId` even
@@ -110,6 +106,8 @@ provideBuilderRegistry({
 provideBuilderI18n({ t: i18n.t })
 provideBuilderState(builderState)
 
+builder.setData(props.modelValue)
+
 // Sync external modelValue -> internal state
 watch(
   () => props.modelValue,
@@ -130,47 +128,59 @@ watch(
   { deep: true },
 )
 
-// Initialize fields from modelValue
-builder.setData(props.modelValue)
+function defaultOptions(count: number): FormValueOption[] {
+  const options: FormValueOption[] = []
+  for (let n = 1; n <= count; n += 1) {
+    options.push({ label: `Option ${String(n)}`, value: `option-${String(n)}`, selected: false })
+  }
+  return options
+}
+
+function createContractField(type: FieldType, label: string): FormDataField {
+  const name = builder.generateName(type)
+  switch (type) {
+    case FieldType.Header:
+      return { type, subtype: 'h1', label, access: false }
+    case FieldType.Paragraph:
+      return { type, subtype: 'p', label, access: false }
+    case FieldType.Hidden:
+      return { type, label, name, access: false }
+    case FieldType.Button:
+      return { type, label, subtype: 'button', className: 'btn-default btn', name, access: false, style: 'default' }
+    case FieldType.Checkbox:
+      return { type, required: false, label, name, access: false, toggle: false }
+    case FieldType.CheckboxGroup:
+      return { type, required: false, label, toggle: false, inline: false, name, access: false, other: false, values: defaultOptions(2) }
+    case FieldType.RadioGroup:
+      return { type, required: false, label, inline: false, name, access: false, other: false, values: defaultOptions(2) }
+    case FieldType.Autocomplete:
+      return { type, required: false, label, className: 'form-control', name, access: false, requireValidOption: false, values: defaultOptions(3) }
+    case FieldType.Select:
+      return { type, required: false, label, className: 'form-control', name, access: false, multiple: false, values: defaultOptions(3) }
+    case FieldType.File:
+      return { type, required: false, label, className: 'form-control', name, access: false, multiple: false }
+    case FieldType.Date:
+    case FieldType.Number:
+    case FieldType.Text:
+    case FieldType.Textarea:
+      return { type, required: false, label, className: 'form-control', name, access: false, subtype: type }
+    default:
+      return { type, label, name, access: false }
+  }
+}
+
+function defaultLabel(type: string): string {
+  const message = i18n.t(type)
+  if (message !== type) {
+    return message
+  }
+  return registry.getDefinition(type)?.label ?? type
+}
 
 function addNewField(type: string, index?: number, rowId?: string, preset?: CustomFieldPreset): void {
-  const fieldType = type as FieldType
-  const newField: FormDataField = {
-    type: fieldType,
-    label: i18n.t(type),
-    name: `${type}-${String(Date.now())}-0`,
-    access: false,
-  }
+  const newField = createContractField(type as FieldType, defaultLabel(type))
   if (rowId !== undefined) {
     newField.rowId = rowId
-  }
-
-  // Apply default values for option-based fields
-  if (fieldType === FieldType.Select || fieldType === FieldType.Autocomplete) {
-    newField.values = [
-      { label: 'Option 1', value: 'option-1', selected: false },
-      { label: 'Option 2', value: 'option-2', selected: false },
-      { label: 'Option 3', value: 'option-3', selected: false },
-    ]
-  }
-  if (fieldType === FieldType.CheckboxGroup || fieldType === FieldType.RadioGroup) {
-    newField.values = [
-      { label: 'Option 1', value: 'option-1', selected: false },
-      { label: 'Option 2', value: 'option-2', selected: false },
-    ]
-  }
-  if (fieldType === FieldType.Button) {
-    newField.style = 'default'
-    newField.subtype = 'button'
-  }
-  if (fieldType === FieldType.Header) {
-    newField.subtype = 'h1'
-  }
-  if (fieldType === FieldType.Paragraph) {
-    newField.subtype = 'p'
-  }
-  if (fieldType === FieldType.Text || fieldType === FieldType.Number || fieldType === FieldType.Date) {
-    newField.subtype = fieldType
   }
 
   if (preset) {
@@ -191,6 +201,10 @@ function addNewField(type: string, index?: number, rowId?: string, preset?: Cust
 
   const fieldId = builder.addField(newField, index)
   emit('field-added', { fieldId, field: newField })
+  if (resolvedOptions.editOnAdd) {
+    builder.selectField(fieldId)
+    emit('field-selected', { fieldId })
+  }
 }
 
 function handleControlClick(payload: { type: string; preset?: CustomFieldPreset }): void {
@@ -212,6 +226,9 @@ function resolveInternalId(fieldId: string): string | undefined {
 }
 
 function handleFieldRemoved(payload: { fieldId: string; field: FormDataField }): void {
+  if (resolvedOptions.fieldRemoveWarn && !window.confirm(i18n.t('confirmRemove'))) {
+    return
+  }
   const internalId = resolveInternalId(payload.fieldId)
   if (internalId) {
     builder.removeField(internalId)
@@ -220,9 +237,10 @@ function handleFieldRemoved(payload: { fieldId: string; field: FormDataField }):
 }
 
 function handleFieldCopied(payload: { fieldId: string }): void {
-  const internalId = resolveInternalId(payload.fieldId)
-  if (internalId) {
-    builder.duplicateField(internalId)
+  const copyId = builder.duplicateField(resolveInternalId(payload.fieldId) ?? payload.fieldId)
+  const copy = copyId === null ? undefined : builder.getField(copyId)
+  if (copyId !== null && copy) {
+    emit('field-added', { fieldId: copyId, field: copy })
   }
 }
 
@@ -242,13 +260,9 @@ function handleFieldSelected(payload: { fieldId: string | null }): void {
 }
 
 function handleFieldReorder(payload: { fromIndex: number; toIndex: number; rowId?: string }): void {
-  builder.moveField(payload.fromIndex, payload.toIndex)
-  const field = builder.fields.value[payload.toIndex]
+  builder.moveFieldToRow(payload.fromIndex, payload.toIndex, payload.rowId)
   const fieldId = builder.getFieldIdByIndex(payload.toIndex)
-  if (fieldId && field) {
-    if (payload.rowId !== undefined) {
-      builder.updateField(fieldId, { rowId: payload.rowId })
-    }
+  if (fieldId) {
     emit('field-moved', {
       fieldId,
       fromIndex: payload.fromIndex,
@@ -261,8 +275,14 @@ function handleControlDropped(payload: { type: string; index: number; rowId?: st
   addNewField(payload.type, payload.index, payload.rowId, payload.preset)
 }
 
+function save(): FormDataField[] {
+  const formData = builder.getData()
+  emit('save', { formData })
+  return formData
+}
+
 function handleSave(): void {
-  emit('save', { formData: builder.getData() })
+  save()
 }
 
 function handleClear(): void {
@@ -290,9 +310,10 @@ defineExpose({
   addField: builder.addField,
   removeField: builder.removeField,
   getData: builder.getData,
+  getFieldIds: () => builder.internalFields.value.map((entry) => entry.internalId),
   setData: builder.setData,
   clearFields: builder.clearFields,
-  save: () => builder.getData(),
+  save,
   toggleFieldEdit: builder.selectField,
   closeAllFieldEdit: () => {
     builder.selectField(null)
@@ -310,7 +331,7 @@ defineExpose({
   >
     <div
       class="builder-layout"
-      :class="{ 'control-right': resolvedOptions.controlPosition === 'right' }"
+      :class="resolvedOptions.controlPosition === 'left' ? 'control-left' : 'control-right'"
     >
       <slot
         name="stage"
@@ -382,20 +403,21 @@ defineExpose({
 
 .builder-layout {
   display: flex;
+  flex-wrap: wrap-reverse;
   gap: 16px;
-  align-items: flex-start;
+  align-items: flex-end;
 }
 
-.builder-layout.control-right { flex-direction: row-reverse; }
+.builder-layout.control-left { flex-direction: row-reverse; }
 
 .builder-layout > :deep(.builder-stage) {
-  flex: 1;
-  min-width: 0;
+  flex: 999 1 0;
+  min-width: min(360px, 100%);
 }
 
 .builder-layout > :deep(.builder-control-panel) {
-  flex-shrink: 0;
-  width: 200px;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .builder-actions {
