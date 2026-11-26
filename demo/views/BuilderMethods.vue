@@ -38,12 +38,9 @@ function clearAll(): void {
 }
 
 function removeFirst(): void {
-  const current = builder.value?.getData() ?? []
-  if (current.length === 0) return
-  // The exposed removeField() takes an internal ID, which is only useful
-  // when you already hold the ref returned by addField(). For the demo we
-  // rebuild formData by slicing — the outcome is identical.
-  builder.value?.setData(current.slice(1))
+  const firstId = builder.value?.getFieldIds()[0]
+  if (firstId === undefined) return
+  builder.value?.removeField(firstId)
 }
 
 function save(): void {

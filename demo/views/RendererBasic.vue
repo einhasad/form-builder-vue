@@ -73,7 +73,7 @@ function onChange(payload: { fieldName: string; value: string[] }): void {
 <template>
   <p class="demo-lead">
     A pre-populated form definition rendered into answerable inputs. Fill fields and the
-    <code>UserDataMap</code> on the right updates live.
+    <code>UserDataMap</code> below updates live.
   </p>
 
   <div class="demo-stack">

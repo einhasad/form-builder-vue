@@ -59,13 +59,8 @@ type PanelSide = 'left' | 'right'
 
 const panelSide = ref<PanelSide>('left')
 
-// Note on `controlPosition`: the library's layout applies `row-reverse` when
-// `controlPosition === 'right'`, which ends up visually placing the control
-// panel on the **left** (the second slot jumps to the start of the row). The
-// mapping below keeps the demo's Left/Right buttons aligned with where the
-// user actually sees the panel.
 const builderOptions = computed(() => ({
-  controlPosition: panelSide.value === 'left' ? ('right' as const) : ('left' as const),
+  controlPosition: panelSide.value,
 }))
 
 function setPanelSide(side: PanelSide): void {
@@ -253,7 +248,8 @@ function setPanelSide(side: PanelSide): void {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
+  min-height: 32px;
+  padding: 4px 10px;
   border: none;
   background: transparent;
   color: var(--ink-3, #6e6a63);
@@ -296,6 +292,7 @@ function setPanelSide(side: PanelSide): void {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
   padding: 6px 10px;
   border: none;
   background: transparent;
@@ -340,10 +337,10 @@ function setPanelSide(side: PanelSide): void {
     radial-gradient(circle, rgba(211, 206, 193, 0.4) 1px, transparent 1px) 0 0 / 14px 14px,
     var(--surface-sunk, #f3f0e8);
   display: flex;
-  justify-content: center;
 }
 
 .responsive-frame {
+  margin-inline: auto;
   background: var(--surface, #fff);
   border: 1px solid var(--line, #e8e4db);
   border-radius: 4px;

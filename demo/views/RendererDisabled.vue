@@ -49,7 +49,7 @@ const userData = ref<UserDataMap>({})
       <div class="preview-chrome">
         <span class="preview-dot" /><span class="preview-dot" /><span class="preview-dot" />
         <span style="flex: 1" />
-        <span class="caps preview-chrome-label">read-only form</span>
+        <span class="caps preview-chrome-label">{{ disabled ? 'read-only form' : 'editable form' }}</span>
       </div>
       <div class="demo-toolbar">
         <label>

@@ -40,8 +40,10 @@ function resolvedOptions(): Partial<BuilderOptions> {
 
 <template>
   <p class="demo-lead">
-    Every knob from <code>BuilderOptions</code> is wired up below. Flip a toggle and
-    watch the live instance react.
+    A selection of <code>BuilderOptions</code> is wired up below:
+    <code>controlPosition</code>, <code>showActionButtons</code>, <code>editOnAdd</code>,
+    <code>fieldRemoveWarn</code>, <code>disableFields</code> and <code>disabledAttrs</code>.
+    Flip a toggle and watch the live instance react.
   </p>
 
   <div class="demo-stack">

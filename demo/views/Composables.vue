@@ -2,11 +2,9 @@
 import { ref, computed } from 'vue'
 import { useI18n, useFieldRegistry, useFormBuilder, useDragDrop, FieldType } from '../../src'
 import type { FormDataField } from '../../src'
-import { registerBuiltinControls } from '../../src/components/controls/register'
 
 const i18n = useI18n()
 const registry = useFieldRegistry()
-registerBuiltinControls(registry.register)
 
 /* ── useFormBuilder ─────────────────────────────────────── */
 const builder = useFormBuilder()
