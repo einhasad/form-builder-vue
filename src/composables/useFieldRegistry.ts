@@ -1,12 +1,13 @@
 import { markRaw, ref, type DefineComponent, type Ref } from 'vue'
 import type { ControlDefinition } from '../types/control-definition'
 import { FieldType } from '../types/field-types'
+import { registerBuiltinControls } from '../components/controls/register'
 
 /** Default editable attributes per field type. */
 const TYPE_ATTR_MAP: Record<string, string[]> = {
   [FieldType.Autocomplete]: [
     'required', 'label', 'description', 'placeholder', 'name',
-    'className', 'value', 'values', 'requireValidOption',
+    'className', 'access', 'value', 'values', 'requireValidOption',
   ],
   [FieldType.Button]: [
     'label', 'subtype', 'style', 'className', 'name', 'value', 'access',
@@ -56,7 +57,45 @@ const TYPE_ATTR_MAP: Record<string, string[]> = {
   ],
 }
 
-/** Composable for managing registered field controls. */
+const definitions = ref<Map<string, ControlDefinition>>(new Map())
+const components = ref<Map<string, DefineComponent>>(new Map())
+
+function register(definition: ControlDefinition, component?: DefineComponent): void {
+  const key = definition.type
+  definitions.value.set(key, definition)
+  if (component) {
+    components.value.set(key, markRaw(component))
+  }
+}
+
+function getDefinition(type: string): ControlDefinition | undefined {
+  return definitions.value.get(type)
+}
+
+function getAllTypes(): string[] {
+  return Array.from(definitions.value.keys())
+}
+
+function getSubtypes(type: string): string[] {
+  const def = definitions.value.get(type)
+  return def ? [...def.subtypes] : []
+}
+
+function isActive(type: string): boolean {
+  return definitions.value.has(type)
+}
+
+function getDefaultAttrs(type: string): string[] {
+  return TYPE_ATTR_MAP[type] ?? ['label']
+}
+
+function resolveComponent(type: string): DefineComponent | undefined {
+  return components.value.get(type)
+}
+
+registerBuiltinControls(register)
+
+/** Composable for the field registry shared by every FormBuilder and FormRenderer. */
 export function useFieldRegistry(): {
   definitions: Ref<Map<string, ControlDefinition>>
   components: Ref<Map<string, DefineComponent>>
@@ -68,42 +107,6 @@ export function useFieldRegistry(): {
   getDefaultAttrs: (type: string) => string[]
   resolveComponent: (type: string) => DefineComponent | undefined
 } {
-  const definitions = ref<Map<string, ControlDefinition>>(new Map())
-  const components = ref<Map<string, DefineComponent>>(new Map())
-
-  function register(definition: ControlDefinition, component?: DefineComponent): void {
-    const key = definition.type
-    definitions.value.set(key, definition)
-    if (component) {
-      components.value.set(key, markRaw(component))
-    }
-  }
-
-  function getDefinition(type: string): ControlDefinition | undefined {
-    return definitions.value.get(type)
-  }
-
-  function getAllTypes(): string[] {
-    return Array.from(definitions.value.keys())
-  }
-
-  function getSubtypes(type: string): string[] {
-    const def = definitions.value.get(type)
-    return def ? [...def.subtypes] : []
-  }
-
-  function isActive(type: string): boolean {
-    return definitions.value.has(type)
-  }
-
-  function getDefaultAttrs(type: string): string[] {
-    return TYPE_ATTR_MAP[type] ?? ['label']
-  }
-
-  function resolveComponent(type: string): DefineComponent | undefined {
-    return components.value.get(type)
-  }
-
   return {
     definitions,
     components,

@@ -22,7 +22,7 @@ const CONTROL_DEFINITIONS: ControlDefinition[] = [
     label: 'Autocomplete',
     icon: '⚙',
     inactive: [],
-    defaultAttrs: ['required', 'label', 'description', 'placeholder', 'name', 'className', 'value', 'values', 'requireValidOption'],
+    defaultAttrs: ['required', 'label', 'description', 'placeholder', 'name', 'className', 'access', 'value', 'values', 'requireValidOption'],
     disabledAttrs: [],
     layout: 'default',
   },

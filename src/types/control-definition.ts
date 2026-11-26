@@ -5,7 +5,7 @@ export type ControlLayout = 'default' | 'noLabel' | 'hidden'
 
 /** Registered control metadata. */
 export interface ControlDefinition {
-  type: FieldType
+  type: FieldType | (string & Record<never, never>)
   subtypes: string[]
   label: string
   icon: string

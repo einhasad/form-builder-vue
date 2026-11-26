@@ -1,8 +1,38 @@
-import { describe, it, expect } from 'vitest'
-import { isReactive, type DefineComponent } from 'vue'
-import { useFieldRegistry } from '../composables/useFieldRegistry'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { computed, isReactive, type DefineComponent } from 'vue'
 import { FieldType } from '../types/field-types'
 import type { ControlDefinition } from '../types/control-definition'
+import type { useFieldRegistry as UseFieldRegistry } from '../composables/useFieldRegistry'
+import { CONTROL_DEFINITIONS } from '../components/controls/register'
+
+let useFieldRegistry: typeof UseFieldRegistry
+
+beforeEach(async () => {
+  vi.resetModules()
+  useFieldRegistry = (await import('../composables/useFieldRegistry')).useFieldRegistry
+})
+
+const ratingDefinition: ControlDefinition = {
+  type: 'star-rating',
+  subtypes: ['five', 'ten'],
+  label: 'Star Rating',
+  icon: '★',
+  inactive: [],
+  defaultAttrs: ['label'],
+  disabledAttrs: [],
+  layout: 'default',
+}
+
+const countryPickerDefinition: ControlDefinition = {
+  type: FieldType.Select,
+  subtypes: [],
+  label: 'Country picker',
+  icon: '⚑',
+  inactive: [],
+  defaultAttrs: ['label'],
+  disabledAttrs: [],
+  layout: 'default',
+}
 
 const textDefinition: ControlDefinition = {
   type: FieldType.Text,
@@ -15,43 +45,44 @@ const textDefinition: ControlDefinition = {
   layout: 'default',
 }
 
-const selectDefinition: ControlDefinition = {
-  type: FieldType.Select,
-  subtypes: [],
-  label: 'Select',
-  icon: '▾',
-  inactive: [],
-  defaultAttrs: ['label', 'values'],
-  disabledAttrs: [],
-  layout: 'default',
-}
-
 describe('useFieldRegistry', () => {
-  it('registers and retrieves definitions', () => {
+  it('starts with every built-in control registered', () => {
     const registry = useFieldRegistry()
 
-    registry.register(textDefinition)
-
-    expect(registry.getDefinition(FieldType.Text)).toEqual(textDefinition)
-    expect(registry.getDefinition(FieldType.Select)).toBeUndefined()
+    expect(registry.getAllTypes()).toEqual(CONTROL_DEFINITIONS.map((def) => def.type))
+    expect(registry.getDefinition(FieldType.Select)?.label).toBe('Select')
+    expect(registry.resolveComponent(FieldType.Select)).toBeDefined()
   })
 
-  it('getAllTypes returns all registered types', () => {
-    const registry = useFieldRegistry()
+  it('shares registrations between every caller', () => {
+    useFieldRegistry().register(countryPickerDefinition)
 
-    registry.register(textDefinition)
-    registry.register(selectDefinition)
-
-    const types = registry.getAllTypes()
-    expect(types).toContain(FieldType.Text)
-    expect(types).toContain(FieldType.Select)
-    expect(types).toHaveLength(2)
+    const other = useFieldRegistry()
+    expect(other.getDefinition(FieldType.Select)).toEqual(countryPickerDefinition)
+    expect(other.isActive(FieldType.Select)).toBe(true)
+    expect(other.getAllTypes()).toContain(FieldType.Select)
   })
 
-  it('getAllTypes returns empty array when nothing registered', () => {
-    const registry = useFieldRegistry()
+  it('adds a custom field type for every caller', () => {
+    const ratingComponent = {} as DefineComponent
+    useFieldRegistry().register(ratingDefinition, ratingComponent)
 
-    expect(registry.getAllTypes()).toEqual([])
+    const other = useFieldRegistry()
+    expect(other.getDefinition('star-rating')).toEqual(ratingDefinition)
+    expect(other.isActive('star-rating')).toBe(true)
+    expect(other.getSubtypes('star-rating')).toEqual(['five', 'ten'])
+    expect(other.resolveComponent('star-rating')).toStrictEqual(ratingComponent)
+    expect(other.getAllTypes()).toEqual([...CONTROL_DEFINITIONS.map((def) => def.type), 'star-rating'])
+  })
+
+  it('overrides a built-in type for every caller', () => {
+    const customText = {} as DefineComponent
+    useFieldRegistry().register(textDefinition, customText)
+
+    const other = useFieldRegistry()
+    expect(other.getDefinition(FieldType.Text)).toEqual(textDefinition)
+    expect(other.resolveComponent(FieldType.Text)).toStrictEqual(customText)
+    expect(other.getAllTypes()).toHaveLength(CONTROL_DEFINITIONS.length)
   })
 
   it('getSubtypes returns subtypes for registered type', () => {
@@ -59,23 +90,20 @@ describe('useFieldRegistry', () => {
 
     registry.register(textDefinition)
 
-    const subtypes = registry.getSubtypes(FieldType.Text)
-    expect(subtypes).toEqual(['text', 'password'])
+    expect(registry.getSubtypes(FieldType.Text)).toEqual(['text', 'password'])
   })
 
   it('getSubtypes returns empty array for unregistered type', () => {
     const registry = useFieldRegistry()
 
-    expect(registry.getSubtypes(FieldType.Select)).toEqual([])
+    expect(registry.getSubtypes('unknown-type')).toEqual([])
   })
 
-  it('isActive returns true for registered type', () => {
+  it('isActive returns false for unregistered type', () => {
     const registry = useFieldRegistry()
 
-    registry.register(textDefinition)
-
-    expect(registry.isActive(FieldType.Text)).toBe(true)
-    expect(registry.isActive(FieldType.Select)).toBe(false)
+    expect(registry.isActive('unknown-type')).toBe(false)
+    expect(registry.getDefinition('unknown-type')).toBeUndefined()
   })
 
   it('getDefaultAttrs returns attribute list for known type', () => {
@@ -101,30 +129,36 @@ describe('useFieldRegistry', () => {
     const registry = useFieldRegistry()
 
     const mockComponent = {} as DefineComponent
-    registry.register(textDefinition, mockComponent)
+    registry.register(countryPickerDefinition, mockComponent)
 
-    expect(registry.resolveComponent(FieldType.Text)).toStrictEqual(mockComponent)
-    expect(registry.resolveComponent(FieldType.Select)).toBeUndefined()
+    expect(registry.resolveComponent(FieldType.Select)).toStrictEqual(mockComponent)
+    expect(registry.resolveComponent('unknown-type')).toBeUndefined()
   })
 
-  it('register without component does not add to components map', () => {
+  it('register without component keeps the existing component', () => {
     const registry = useFieldRegistry()
+    const builtinSelect = registry.resolveComponent(FieldType.Select)
 
-    registry.register(textDefinition)
+    registry.register(countryPickerDefinition)
 
-    expect(registry.resolveComponent(FieldType.Text)).toBeUndefined()
+    expect(registry.getDefinition(FieldType.Select)).toEqual(countryPickerDefinition)
+    expect(builtinSelect).toBeDefined()
+    expect(registry.resolveComponent(FieldType.Select)).toBe(builtinSelect)
   })
 
   it('definitions and components refs are reactive', () => {
     const registry = useFieldRegistry()
+    const selectLabel = computed(() => registry.definitions.value.get(FieldType.Select)?.label)
+    const selectComponent = computed(() => registry.components.value.get(FieldType.Select))
+    const mockComponent = {} as DefineComponent
 
-    expect(registry.definitions.value.size).toBe(0)
-    expect(registry.components.value.size).toBe(0)
+    expect(selectLabel.value).toBe('Select')
+    expect(selectComponent.value).not.toBe(mockComponent)
 
-    registry.register(textDefinition, {} as DefineComponent)
+    registry.register(countryPickerDefinition, mockComponent)
 
-    expect(registry.definitions.value.size).toBe(1)
-    expect(registry.components.value.size).toBe(1)
+    expect(selectLabel.value).toBe('Country picker')
+    expect(selectComponent.value).toStrictEqual(mockComponent)
   })
 
   it('stores registered components as non-reactive so Vue does not proxy them', () => {
@@ -163,6 +197,7 @@ describe('useFieldRegistry', () => {
     expect(registry.getDefaultAttrs(FieldType.RadioGroup)).toContain('inline')
     // Autocomplete
     expect(registry.getDefaultAttrs(FieldType.Autocomplete)).toContain('requireValidOption')
+    expect(registry.getDefaultAttrs(FieldType.Autocomplete)).toContain('access')
     // Checkbox
     expect(registry.getDefaultAttrs(FieldType.Checkbox)).toContain('toggle')
   })
