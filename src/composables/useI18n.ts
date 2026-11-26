@@ -61,10 +61,22 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   confirmRemove: 'Are you sure you want to remove this field?',
   emptyStage: 'Drag a field from the panel to add it here.',
 
+  // Validation messages
+  validationRequired: '{label} is required',
+  validationMaxlength: '{label} must be at most {maxlength} characters',
+  validationMin: '{label} must be at least {min}',
+  validationMax: '{label} must be at most {max}',
+
   // Option management
   addOption: 'Add Option',
   removeOption: 'Remove Option',
+  moveUp: 'Move Up',
+  moveDown: 'Move Down',
   selected: 'Selected',
+}
+
+function ownMessage(table: Record<string, string> | undefined, key: string): string | undefined {
+  return table && Object.hasOwn(table, key) ? table[key] : undefined
 }
 
 /** Composable for internationalization support. */
@@ -80,15 +92,7 @@ export function useI18n(): {
   })
 
   function t(key: string): string {
-    const currentMessages = messages.value[locale.value]
-    if (currentMessages?.[key]) {
-      return currentMessages[key]
-    }
-    // Fallback to default English
-    if (DEFAULT_MESSAGES[key]) {
-      return DEFAULT_MESSAGES[key]
-    }
-    return key
+    return ownMessage(messages.value[locale.value], key) ?? ownMessage(DEFAULT_MESSAGES, key) ?? key
   }
 
   function setLocale(newLocale: string): void {

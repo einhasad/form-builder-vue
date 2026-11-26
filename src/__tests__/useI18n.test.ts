@@ -155,4 +155,33 @@ describe('useI18n', () => {
     expect(t('success')).toBe('Success')
     expect(t('warning')).toBe('Warning')
   })
+
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])('echoes the key for prototype member %s', (key) => {
+    const { t } = useI18n()
+
+    expect(t(key)).toBe(key)
+  })
+
+  it('returns an empty translation instead of falling back', () => {
+    const { t, addMessages, setLocale } = useI18n()
+    addMessages('xx', { save: '' })
+    setLocale('xx')
+
+    expect(t('save')).toBe('')
+  })
+
+  it('falls back to defaults when the locale has no message table', () => {
+    const { t, locale } = useI18n()
+    locale.value = 'missing'
+
+    expect(t('save')).toBe('Save')
+  })
+
+  it('has messages for option reordering and remove confirmation', () => {
+    const { t } = useI18n()
+
+    expect(t('moveUp')).toBe('Move Up')
+    expect(t('moveDown')).toBe('Move Down')
+    expect(t('confirmRemove')).toBe('Are you sure you want to remove this field?')
+  })
 })
