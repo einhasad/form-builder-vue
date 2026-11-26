@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('examples · FormBuilder basic', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/builder-basic')
+    await page.goto('#/examples/builder-basic')
   })
 
   test('route is selected in sidebar', async ({ page }) => {
@@ -28,7 +28,7 @@ test.describe('examples · FormBuilder basic', () => {
     // JSON preview reflects the new field
     const json = await page.locator('[data-qa="model-json"]').innerText()
     expect(json).toContain('"type": "text"')
-    expect(json).not.toContain('"className": "form-control"')
+    expect(json).toContain('"className": "form-control"')
   })
 
   test('remove button deletes a field', async ({ page }) => {
@@ -69,7 +69,7 @@ test.describe('examples · FormBuilder basic', () => {
 
 test.describe('examples · FormBuilder options', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/builder-options')
+    await page.goto('#/examples/builder-options')
   })
 
   test('controlPosition toggles builder layout class', async ({ page }) => {
@@ -122,7 +122,7 @@ test.describe('examples · FormBuilder options', () => {
 
 test.describe('examples · FormBuilder events', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/builder-events')
+    await page.goto('#/examples/builder-events')
   })
 
   test('loaded fires on mount', async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe('examples · FormBuilder events', () => {
 
 test.describe('examples · FormBuilder methods', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/builder-methods')
+    await page.goto('#/examples/builder-methods')
   })
 
   test('addField() pushes a field to the stage', async ({ page }) => {

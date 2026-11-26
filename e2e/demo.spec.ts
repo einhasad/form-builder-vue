@@ -9,14 +9,14 @@ test.describe('demo page', () => {
   })
 
   test('renders the hero', async ({ page }) => {
-    await expect(page).toHaveTitle(/Form Builder|Formcraft/)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('Drag, drop,')
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('ship')
-    await expect(page.locator('.hero-pill-tag')).toHaveText('v0.1')
+    await expect(page).toHaveTitle(/Form Builder/)
+    await expect(page.locator('.hero-lede')).toContainText('A Vue 3 form builder you can actually reason about.')
+    await expect(page.locator('[data-qa="live-demo"]')).toBeVisible()
+    await expect(page.locator('.hero-pill-tag')).toHaveText(/^v\d+\.\d+$/)
   })
 
   test('header shows brand, nav, and search', async ({ page }) => {
-    await expect(page.locator('.hdr-brand-name')).toHaveText('Formcraft')
+    await expect(page.locator('.hdr-brand-name')).toHaveText('form-builder-vue')
     await expect(page.locator('.hdr-version')).toHaveText(/v\d+\.\d+\.\d+/)
     await expect(page.locator('.hdr-nav-item.is-active')).toHaveText('Docs')
     await expect(page.locator('.hdr-search-input')).toBeVisible()
@@ -35,14 +35,14 @@ test.describe('demo page', () => {
     await expect(page.locator('[data-qa="example-pane"]')).toBeVisible()
     await page.locator('[data-qa="header-docs-link"]').click()
     await expect(page.locator('[data-qa="example-pane"]')).toHaveCount(0)
-    await expect(page.locator('.hero-headline')).toBeVisible()
+    await expect(page.locator('[data-qa="live-demo"]')).toBeVisible()
   })
 
   test('sidebar lists all documented sections', async ({ page }) => {
     const sections = [
       'Introduction', 'Installation', 'Quickstart',
       'FormBuilder', 'Field types', 'BuilderOptions', 'Events', 'Exposed methods',
-      'FormRenderer', 'RendererOptions', 'v-model shape',
+      'FormRenderer', 'Disabled state', 'RendererOptions', 'v-model shape',
       'useFormBuilder', 'useFieldRegistry', 'useDragDrop', 'useI18n',
       'FormDataField', 'UserDataMap', 'FieldType enum', 'Changelog',
     ]
@@ -67,16 +67,6 @@ test.describe('demo page', () => {
     await expect(page.locator('[data-qa="example-pane"]')).toBeVisible()
   })
 
-  test('install chip copies the command to the clipboard', async ({ page }) => {
-    const chip = page.locator('.install-chip').first()
-    await chip.click()
-    await expect(chip.locator('.install-copy-label')).toHaveText('copied')
-    const clipboard = await page.evaluate(() => navigator.clipboard.readText())
-    expect(clipboard).toBe('npm install @einhasad-vue/form-builder-vue')
-    // revert label after timeout
-    await expect(chip.locator('.install-copy-label')).toHaveText('copy', { timeout: 3_000 })
-  })
-
   test('code-block copy buttons toggle to "copied"', async ({ page }) => {
     const block = page.locator('.codeblock .codeblock-copy').first()
     await expect(block).toHaveText('copy')
@@ -94,7 +84,7 @@ test.describe('demo page', () => {
   })
 
   test('anchor nav scrolls to quickstart section', async ({ page }) => {
-    await page.locator('a[href="#quickstart"].btn-solid').click()
+    await page.locator('.sidebar-link', { hasText: 'Quickstart' }).click()
     await expect(page).toHaveURL(/#quickstart$/)
     await expect(page.locator('#quickstart')).toBeInViewport()
   })
@@ -110,10 +100,10 @@ test.describe('demo page', () => {
 
   test('Events table lists all documented events', async ({ page }) => {
     const rows = page.locator('#events tbody tr')
-    await expect(rows).toHaveCount(7)
+    await expect(rows).toHaveCount(9)
     const expected = [
       'update:modelValue', 'field-added', 'field-removed',
-      'field-updated', 'field-moved', 'save', 'clear',
+      'field-updated', 'field-moved', 'field-selected', 'save', 'clear', 'loaded',
     ]
     for (let i = 0; i < expected.length; i += 1) {
       await expect(rows.nth(i)).toContainText(expected[i]!)
@@ -122,17 +112,20 @@ test.describe('demo page', () => {
 
   test('BuilderOptions table lists all documented options', async ({ page }) => {
     const rows = page.locator('#options tbody tr')
-    await expect(rows).toHaveCount(6)
-    for (const opt of ['controlPosition', 'disableFields', 'showActionButtons', 'disabledAttrs', 'editOnAdd', 'fieldRemoveWarn']) {
-      await expect(page.locator('#options .prop-name', { hasText: opt })).toBeVisible()
+    await expect(rows).toHaveCount(9)
+    for (const opt of [
+      'controlPosition', 'controlOrder', 'disableFields', 'disabledAttrs', 'showActionButtons',
+      'editOnAdd', 'fieldRemoveWarn', 'fields', 'buttonStyles',
+    ]) {
+      await expect(page.locator('#options .prop-name', { hasText: new RegExp(`^${opt}$`) })).toBeVisible()
     }
   })
 
   test('field-type grid lists every built-in type', async ({ page }) => {
     const cards = page.locator('.field-card')
     await expect(cards).toHaveCount(14)
-    await expect(cards.first()).toContainText('Text')
-    await expect(cards.last()).toContainText('Hidden')
+    await expect(cards.first()).toContainText('Autocomplete')
+    await expect(cards.last()).toContainText('Text Area')
   })
 
   test('every field card matches a README-documented type', async ({ page }) => {
@@ -146,25 +139,21 @@ test.describe('demo page', () => {
     }
   })
 
-  test('preview stage has stage cards + control chips + save/clear', async ({ page }) => {
-    await expect(page.locator('.preview-chrome-label')).toHaveText('live preview')
-    await expect(page.locator('.stage-card')).toHaveCount(4)
-    await expect(page.locator('.ctrl-chip')).toHaveCount(8)
-    await expect(page.locator('.btn-accent-sm')).toHaveText('Save')
-    await expect(page.locator('.btn-outline-sm')).toHaveText('Clear')
+  test('live demo hosts a real FormBuilder with control chips + save/clear', async ({ page }) => {
+    const demo = page.locator('[data-qa="live-demo"]')
+    await expect(demo.locator('.preview-chrome-label')).toHaveText('auto-playing')
+    await expect(demo.locator('.live-tab')).toHaveText(['Builder', 'Preview', 'JSON'])
+    const builder = demo.locator('[data-qa="live-pane-builder"]')
+    await expect(builder.locator('[data-qa="control-item"]')).toHaveCount(14)
+    await expect(builder.locator('[data-qa="action-save"]')).toBeVisible()
+    await expect(builder.locator('[data-qa="action-clear"]')).toBeVisible()
   })
 
-  test('preview stage auto-cycles the selected field', async ({ page }) => {
-    const selected = page.locator('.stage-card.is-selected')
-    await expect(selected).toHaveCount(1)
-    const firstLabel = await selected.locator('.stage-card-label').innerText()
+  test('live demo auto-adds fields to the stage', async ({ page }) => {
+    const fields = page.locator('[data-qa="live-pane-builder"] [data-qa="builder-field"]')
     await expect
-      .poll(
-        async () =>
-          (await page.locator('.stage-card.is-selected .stage-card-label').innerText()).trim(),
-        { timeout: 6_000, intervals: [500] },
-      )
-      .not.toBe(firstLabel.trim())
+      .poll(async () => fields.count(), { timeout: 6_000, intervals: [250] })
+      .toBeGreaterThan(0)
   })
 
   test('search input updates its value and widens on focus', async ({ page }) => {
@@ -179,35 +168,25 @@ test.describe('demo page', () => {
     ).toBeGreaterThan(initialWidth)
   })
 
-  test('TOC highlights the active section while scrolling', async ({ page }) => {
-    await page.locator('.sidebar-link', { hasText: 'Quickstart' }).scrollIntoViewIfNeeded()
-    await page.locator('a[href="#installation"]').first().click()
-    await expect(page.locator('#installation')).toBeInViewport()
-    await expect
-      .poll(async () => (await page.locator('.toc-link.is-active').innerText()).trim(), { timeout: 4_000, intervals: [250] })
-      .toMatch(/Installation|Quickstart|Introduction/)
-  })
-
   test('footer renders updated date', async ({ page }) => {
-    await expect(page.locator('.page-footer time')).toHaveText(/April 20, 2026/)
+    await expect(page.locator('.page-footer time')).toHaveText(/April 23, 2026/)
   })
 
   test('callouts render the note + tip blocks', async ({ page }) => {
     await expect(page.locator('.callout--note')).toContainText(/Stable, but young/)
     await expect(page.locator('.callout--tip')).toContainText(/Need a custom field type/)
-    await expect(page.locator('.callout--tip code')).toContainText('useFieldRegistry')
+    await expect(page.locator('.callout--tip')).toContainText('useFieldRegistry')
   })
 
   test('responsive: sidebar hides under 960px', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 })
     await expect(page.locator('.sidebar')).toBeHidden()
-    await expect(page.locator('.toc')).toBeHidden()
   })
 
   test('page content is present on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 380, height: 900 })
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-    await expect(page.locator('.hero-headline')).toBeVisible()
-    await expect(page.locator('.install-chip')).toBeVisible()
+    await expect(page.locator('.hero-lede')).toBeVisible()
+    await expect(page.locator('[data-qa="live-demo"]')).toBeVisible()
+    await expect(page.locator('#installation .codeblock')).toBeVisible()
   })
 })

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('examples · FormRenderer basic', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/renderer-basic')
+    await page.goto('#/examples/renderer-basic')
   })
 
   test('route is selected', async ({ page }) => {
@@ -46,7 +46,7 @@ test.describe('examples · FormRenderer basic', () => {
 
 test.describe('examples · FormRenderer disabled', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/renderer-disabled')
+    await page.goto('#/examples/renderer-disabled')
   })
 
   test('disabled prop disables every input by default', async ({ page }) => {
@@ -70,7 +70,7 @@ test.describe('examples · FormRenderer disabled', () => {
 
 test.describe('examples · composables', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/#/examples/composables')
+    await page.goto('#/examples/composables')
   })
 
   test('useI18n translates a key and switches locale', async ({ page }) => {
@@ -99,7 +99,7 @@ test.describe('examples · composables', () => {
 
 test.describe('examples · shell', () => {
   test('sidebar hash-routed links navigate between examples', async ({ page }) => {
-    await page.goto('/#/examples/builder-basic')
+    await page.goto('#/examples/builder-basic')
     await expect(page.locator('[data-qa="example-title"]')).toContainText('basic v-model')
 
     await page.locator('[data-qa="sidebar-events"]').click()
@@ -110,8 +110,8 @@ test.describe('examples · shell', () => {
   })
 
   test('root URL without a hash shows the docs view, not an example', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('')
     await expect(page.locator('[data-qa="example-pane"]')).toHaveCount(0)
-    await expect(page.locator('.hero-headline')).toBeVisible()
+    await expect(page.locator('[data-qa="live-demo"]')).toBeVisible()
   })
 })
