@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import type { FormDataField, FormValueOption } from '../../types/form-data'
+import { useOtherOption } from '../../composables/useOtherOption'
 
 /** The form field definition. */
 const props = defineProps<{
@@ -18,26 +18,30 @@ const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
 
 void props.preview
 
-const otherValue = ref('')
+const { otherSelected, otherValue, withOther } = useOtherOption(props, true)
 
 function getOptions(): FormValueOption[] {
   return props.field.values ?? []
 }
 
+function isChecked(optionValue: string): boolean {
+  return !otherSelected.value && props.modelValue.includes(optionValue)
+}
+
 function onRadioChange(optionValue: string): void {
+  otherSelected.value = false
+  otherValue.value = ''
   emit('update:modelValue', [optionValue])
 }
 
-function getOtherKey(): string {
-  return `other-${props.field.name ?? 'unknown'}`
-}
-
 function onOtherRadioChange(): void {
-  emit('update:modelValue', [getOtherKey()])
+  otherSelected.value = true
+  emit('update:modelValue', withOther([]))
 }
 
 function onOtherInput(event: Event): void {
   otherValue.value = (event.target as HTMLInputElement).value
+  emit('update:modelValue', withOther([]))
 }
 </script>
 
@@ -59,7 +63,7 @@ function onOtherInput(event: Event): void {
           type="radio"
           :name="props.field.name"
           :value="option.value"
-          :checked="props.modelValue.includes(option.value)"
+          :checked="isChecked(option.value)"
           :required="props.field.required"
           :disabled="props.disabled"
           data-qa="radio-input"
@@ -77,7 +81,7 @@ function onOtherInput(event: Event): void {
         <input
           type="radio"
           :name="props.field.name"
-          :checked="props.modelValue.includes(getOtherKey())"
+          :checked="otherSelected"
           :disabled="props.disabled"
           data-qa="radio-other-input"
           @change="onOtherRadioChange"
@@ -86,10 +90,11 @@ function onOtherInput(event: Event): void {
         Other
       </label>
       <input
-        v-if="props.modelValue.includes(getOtherKey())"
+        v-if="otherSelected"
         type="text"
         :value="otherValue"
         :disabled="props.disabled"
+        aria-label="Other"
         data-qa="radio-other-text"
         @input="onOtherInput"
       >

@@ -13,8 +13,11 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
+const TEXTLESS_TAGS = new Set(['canvas'])
+
 function getTag(): string {
-  return props.field.subtype ?? 'p'
+  const tag = props.field.subtype ?? 'p'
+  return TEXTLESS_TAGS.has(tag) ? 'p' : tag
 }
 
 void props.modelValue
@@ -26,6 +29,7 @@ void props.disabled
   <component
     :is="getTag()"
     :class="props.field.className"
+    :data-subtype="props.field.subtype"
     data-qa="control-paragraph"
   >
     {{ props.field.label }}

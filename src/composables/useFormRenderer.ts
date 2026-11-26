@@ -1,9 +1,51 @@
 import { ref, type Ref } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import type { UserDataMap } from '../types/user-data'
+import { FieldType } from '../types/field-types'
+import { useI18n } from './useI18n'
 
-/** Composable for managing form renderer state and user answers. */
-export function useFormRenderer(): {
+type Translate = (key: string) => string
+
+function isBlank(answer: string[]): boolean {
+  return answer.every((value) => value === '')
+}
+
+function format(template: string, params: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (placeholder, name: string) => params[name] ?? placeholder)
+}
+
+function rangeErrors(field: FormDataField, text: string, t: Translate): string[] {
+  const value = Number(text)
+  const errors: string[] = []
+  if (field.min !== undefined && field.min !== '' && value < Number(field.min)) {
+    errors.push(format(t('validationMin'), { label: field.label, min: field.min }))
+  }
+  if (field.max !== undefined && field.max !== '' && value > Number(field.max)) {
+    errors.push(format(t('validationMax'), { label: field.label, max: field.max }))
+  }
+  return errors
+}
+
+function answerErrors(field: FormDataField, answer: string[], t: Translate): string[] {
+  if (isBlank(answer)) {
+    return field.required ? [format(t('validationRequired'), { label: field.label })] : []
+  }
+  const text = answer.join('')
+  const errors: string[] = []
+  if (field.maxlength && text.length > Number(field.maxlength)) {
+    errors.push(format(t('validationMaxlength'), { label: field.label, maxlength: field.maxlength }))
+  }
+  if (field.type === FieldType.Number) {
+    errors.push(...rangeErrors(field, text, t))
+  }
+  return errors
+}
+
+/**
+ * Composable for managing form renderer state and user answers.
+ * @param t - Translator for validation messages; defaults to the built-in English messages.
+ */
+export function useFormRenderer(t: Translate = useI18n().t): {
   localData: Ref<UserDataMap>
   errors: Ref<Record<string, string[]>>
   setAnswer: (fieldName: string, value: string[]) => void
@@ -66,14 +108,8 @@ export function useFormRenderer(): {
         continue
       }
 
-      const fieldErrors: string[] = []
-      const answer = localData.value[fieldName]
-
-      if (field.required) {
-        if (!answer || answer.length === 0 || (answer.length === 1 && answer[0] === '')) {
-          fieldErrors.push(`${field.label} is required`)
-        }
-      }
+      const answer = localData.value[fieldName] ?? []
+      const fieldErrors = answerErrors(field, answer, t)
 
       if (fieldErrors.length > 0) {
         newErrors[fieldName] = fieldErrors

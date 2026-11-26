@@ -13,14 +13,8 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
-const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
-
 void props.modelValue
 void props.preview
-
-function onClick(): void {
-  emit('update:modelValue', [props.field.value ?? 'clicked'])
-}
 
 function getStyle(): string {
   return props.field.style ?? 'default'
@@ -40,7 +34,6 @@ function getButtonClass(): string {
     :name="props.field.name"
     :disabled="props.disabled"
     data-qa="control-button"
-    @click.prevent="onClick"
   >
     {{ props.field.label }}
   </button>
@@ -66,7 +59,8 @@ function getButtonClass(): string {
 }
 
 .fbv-btn:focus-visible {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }
 

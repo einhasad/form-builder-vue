@@ -45,7 +45,9 @@ function onChange(event: Event): void {
     <option
       v-if="props.field.placeholder"
       value=""
-      :selected="props.modelValue.length === 0"
+      :selected="!props.field.multiple && props.modelValue.length === 0"
+      :disabled="props.field.multiple"
+      data-qa="select-placeholder"
     >
       {{ props.field.placeholder }}
     </option>
@@ -63,10 +65,12 @@ function onChange(event: Event): void {
 
 <style scoped>
 select {
+  box-sizing: border-box;
   width: 100%;
   padding: 7px 10px;
   font: inherit;
   font-size: 13px;
+  line-height: 20px;
   background: var(--surface, #fff);
   color: var(--ink, #111);
   border: 1px solid var(--line-2, #d3cec1);
@@ -74,8 +78,13 @@ select {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
+select:not([multiple]) {
+  height: 36px;
+}
+
 select:focus {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   border-color: var(--ink, #111);
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }

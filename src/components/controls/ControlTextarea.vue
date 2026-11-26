@@ -58,7 +58,8 @@ textarea {
 }
 
 textarea:focus {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   border-color: var(--ink, #111);
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }

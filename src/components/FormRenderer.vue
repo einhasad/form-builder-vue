@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, shallowRef, watch, onMounted, computed, useTemplateRef } from 'vue'
 import type { FormDataField } from '../types/form-data'
 import type { UserDataMap } from '../types/user-data'
 import type { RendererOptions } from '../types/renderer-options'
@@ -7,8 +7,9 @@ import { provideBuilderRegistry } from '../state/builderRegistry'
 import { provideBuilderI18n } from '../state/builderI18n'
 import { useFieldRegistry } from '../composables/useFieldRegistry'
 import { useI18n } from '../composables/useI18n'
-import { registerBuiltinControls } from './controls/register'
+import { useFormRenderer } from '../composables/useFormRenderer'
 import RendererField from './RendererField.vue'
+import { defaultAnswer } from '../utils/defaultAnswer'
 
 /** Field definitions to render. */
 const props = withDefaults(defineProps<{
@@ -37,24 +38,7 @@ const emit = defineEmits<{
 const registry = useFieldRegistry()
 const i18n = useI18n()
 
-// Register all built-in controls
-registerBuiltinControls(registry.register)
-
-// Build resolved options
-const resolvedOptions: RendererOptions = {
-  disableHTMLLabels: props.options.disableHTMLLabels ?? false,
-  notify: props.options.notify ?? {
-    error: (msg: string) => { void msg },
-    success: (msg: string) => { void msg },
-    warning: (msg: string) => { void msg },
-  },
-}
-
-// `resolvedOptions` is intentionally retained even though nothing injects it
-// today — it's passed down the render tree via direct prop binding and stored
-// here so consumers that import `useFormRenderer` externally still see a
-// consistent options object.
-void resolvedOptions
+void props.options
 
 // Provide to children
 provideBuilderRegistry({
@@ -67,35 +51,91 @@ provideBuilderRegistry({
 })
 provideBuilderI18n({ t: i18n.t })
 
-// Local state — seed from parent modelValue first, then fall back to
-// per-field defaults (`values[].selected` or `field.value`) so that
-// pre-marked selections survive into the rendered form.
-function seedDefaults(initial: UserDataMap): UserDataMap {
-  const seeded: UserDataMap = { ...initial }
-  for (const field of props.formData) {
-    const name = field.name
-    if (!name || seeded[name] !== undefined) {
-      continue
-    }
-    if (field.values && field.values.length > 0) {
-      const defaults = field.values.filter((v) => v.selected).map((v) => v.value)
-      if (defaults.length > 0) {
-        seeded[name] = defaults
-      }
-    } else if (field.value !== undefined && field.value !== '') {
-      seeded[name] = [field.value]
-    }
-  }
-  return seeded
+interface RendererFieldHandle {
+  fieldName: string | undefined
+  controlElement: () => HTMLElement | undefined
 }
 
-const localData = ref<UserDataMap>(seedDefaults(props.modelValue))
+const renderedFields = shallowRef<FormDataField[]>(props.formData)
+const untouchedNames = new Set<string>()
+const validation = useFormRenderer(i18n.t)
+const fieldErrors = ref<Record<string, string[]>>({})
+const fieldComponents = useTemplateRef<RendererFieldHandle[]>('fieldComponents')
 
-// Sync external modelValue -> local
+function fieldNames(fields: FormDataField[]): Set<string> {
+  return new Set(fields.flatMap((field) => (field.name ? [field.name] : [])))
+}
+
+function seedDefaults(current: UserDataMap, fields: FormDataField[]): UserDataMap {
+  const seeded: UserDataMap = { ...current }
+  const cleared = new Set<string>()
+  for (const field of fields) {
+    const name = field.name
+    if (!name || (seeded[name] !== undefined && !untouchedNames.has(name))) {
+      continue
+    }
+    const answer = defaultAnswer(field)
+    if (answer) {
+      seeded[name] = answer
+      untouchedNames.add(name)
+    } else if (untouchedNames.has(name)) {
+      cleared.add(name)
+      untouchedNames.delete(name)
+    }
+  }
+  return withoutNames(seeded, cleared)
+}
+
+function withoutNames(data: Record<string, string[]>, names: Set<string>): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(data).filter(([name]) => !names.has(name)))
+}
+
+function sameAnswers(a: UserDataMap, b: UserDataMap): boolean {
+  const entries = Object.entries(a)
+  return entries.length === Object.keys(b).length && entries.every(([key, left]) => {
+    const right = b[key]
+    return left.length === right?.length && left.every((v, i) => v === right[i])
+  })
+}
+
+const localData = ref<UserDataMap>(seedDefaults(props.modelValue, renderedFields.value))
+let knownNames = fieldNames(renderedFields.value)
+
 watch(
   () => props.modelValue,
   (newValue) => {
+    for (const name of untouchedNames) {
+      if (newValue[name] !== localData.value[name]) {
+        untouchedNames.delete(name)
+      }
+    }
     localData.value = { ...newValue }
+  },
+  { deep: true },
+)
+
+watch(
+  () => props.formData,
+  (fields) => {
+    renderedFields.value = fields
+  },
+)
+
+watch(
+  renderedFields,
+  (fields) => {
+    const currentNames = fieldNames(fields)
+    const removed = new Set([...knownNames].filter((name) => !currentNames.has(name)))
+    knownNames = currentNames
+    for (const name of removed) {
+      untouchedNames.delete(name)
+    }
+    fieldErrors.value = withoutNames(fieldErrors.value, removed)
+    const next = seedDefaults(withoutNames(localData.value, removed), fields)
+    if (!sameAnswers(next, localData.value)) {
+      localData.value = next
+      emit('update:modelValue', { ...next })
+    }
   },
   { deep: true },
 )
@@ -112,8 +152,39 @@ function handleUpdateValue(field: FormDataField, value: string[]): void {
   if (!field.name) {
     return
   }
+  untouchedNames.delete(field.name)
+  fieldErrors.value = withoutNames(fieldErrors.value, new Set([field.name]))
   localData.value = { ...localData.value, [field.name]: value }
   emit('update:modelValue', { ...localData.value })
+}
+
+function getFieldErrors(field: FormDataField): string[] {
+  return field.name ? fieldErrors.value[field.name] ?? [] : []
+}
+
+function validate(): Record<string, string[]> {
+  validation.setAnswers(localData.value)
+  validation.validate(renderedFields.value)
+  fieldErrors.value = { ...validation.errors.value }
+  return { ...fieldErrors.value }
+}
+
+function getElement(fieldName: string): HTMLElement | undefined {
+  return fieldComponents.value?.find((component) => component.fieldName === fieldName)?.controlElement()
+}
+
+function resetAnswers(): void {
+  untouchedNames.clear()
+  fieldErrors.value = {}
+  localData.value = seedDefaults({}, renderedFields.value)
+  emit('update:modelValue', { ...localData.value })
+}
+
+function onClick(event: MouseEvent): void {
+  if (event.target instanceof Element && event.target.closest('button[type="reset"]')) {
+    event.preventDefault()
+    resetAnswers()
+  }
 }
 
 function handleChange(payload: { fieldName: string; value: string[] }): void {
@@ -121,7 +192,7 @@ function handleChange(payload: { fieldName: string; value: string[] }): void {
 }
 
 onMounted(() => {
-  if (Object.keys(localData.value).length > Object.keys(props.modelValue).length) {
+  if (!sameAnswers(localData.value, props.modelValue)) {
     emit('update:modelValue', { ...localData.value })
   }
   emit('render')
@@ -140,7 +211,7 @@ const rows = computed<RendererRow[]>(() => {
   const MAX_ROW_SIZE = 3
   const result: RendererRow[] = []
   let current: RendererRow | null = null
-  props.formData.forEach((field, index) => {
+  renderedFields.value.forEach((field, index) => {
     if (
       current !== null &&
       field.rowId !== undefined &&
@@ -166,16 +237,16 @@ defineExpose({
     userData: values,
   })),
   clear: () => {
+    untouchedNames.clear()
+    fieldErrors.value = {}
     localData.value = {}
     emit('update:modelValue', {})
   },
   setData: (formData: FormDataField[]) => {
-    void formData
+    renderedFields.value = formData
   },
-  getElement: (fieldName: string) => {
-    void fieldName
-    return undefined
-  },
+  getElement,
+  validate,
 })
 </script>
 
@@ -183,6 +254,7 @@ defineExpose({
   <div
     class="form-renderer"
     data-qa="form-renderer"
+    @click="onClick"
   >
     <div
       v-for="(row, rowIndex) in rows"
@@ -194,8 +266,10 @@ defineExpose({
       <RendererField
         v-for="entry in row.fields"
         :key="entry.field.name ?? entry.index"
+        ref="fieldComponents"
         :field="entry.field"
         :model-value="getFieldModelValue(entry.field)"
+        :errors="getFieldErrors(entry.field)"
         :disabled="props.disabled"
         @update:model-value="handleUpdateValue(entry.field, $event)"
         @change="handleChange"

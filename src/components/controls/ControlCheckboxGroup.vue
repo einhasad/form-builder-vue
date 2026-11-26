@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import type { FormDataField, FormValueOption } from '../../types/form-data'
+import { useOtherOption } from '../../composables/useOtherOption'
 
 /** The form field definition. */
 const props = defineProps<{
@@ -18,7 +18,7 @@ const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
 
 void props.preview
 
-const otherValue = ref('')
+const { otherSelected, otherValue, optionAnswers, withOther } = useOtherOption(props, false)
 
 function getOptions(): FormValueOption[] {
   return props.field.values ?? []
@@ -29,34 +29,27 @@ function isChecked(optionValue: string): boolean {
 }
 
 function onCheck(optionValue: string): void {
-  const current = [...props.modelValue]
+  const current = optionAnswers()
   const idx = current.indexOf(optionValue)
   if (idx > -1) {
     current.splice(idx, 1)
   } else {
     current.push(optionValue)
   }
-  emit('update:modelValue', current)
-}
-
-function getOtherKey(): string {
-  return `other-${props.field.name ?? 'unknown'}`
+  emit('update:modelValue', withOther(current))
 }
 
 function onOtherCheck(): void {
-  const otherOpt = getOtherKey()
-  const current = [...props.modelValue]
-  const idx = current.indexOf(otherOpt)
-  if (idx > -1) {
-    current.splice(idx, 1)
-  } else {
-    current.push(otherOpt)
+  otherSelected.value = !otherSelected.value
+  if (!otherSelected.value) {
+    otherValue.value = ''
   }
-  emit('update:modelValue', current)
+  emit('update:modelValue', withOther(optionAnswers()))
 }
 
 function onOtherInput(event: Event): void {
   otherValue.value = (event.target as HTMLInputElement).value
+  emit('update:modelValue', withOther(optionAnswers()))
 }
 </script>
 
@@ -97,7 +90,7 @@ function onOtherInput(event: Event): void {
         <input
           type="checkbox"
           :name="props.field.name"
-          :checked="props.modelValue.includes(getOtherKey())"
+          :checked="otherSelected"
           :disabled="props.disabled"
           data-qa="checkbox-other-input"
           @change="onOtherCheck"
@@ -106,10 +99,11 @@ function onOtherInput(event: Event): void {
         Other
       </label>
       <input
-        v-if="props.modelValue.includes(getOtherKey())"
+        v-if="otherSelected"
         type="text"
         :value="otherValue"
         :disabled="props.disabled"
+        aria-label="Other"
         data-qa="checkbox-other-text"
         @input="onOtherInput"
       >
@@ -185,7 +179,8 @@ function onOtherInput(event: Event): void {
 }
 
 .checkbox-option input[type="checkbox"].toggle:focus-visible {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }
 

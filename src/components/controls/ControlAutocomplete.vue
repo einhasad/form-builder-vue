@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { FormDataField, FormValueOption } from '../../types/form-data'
 
 /** The form field definition. */
@@ -14,34 +14,70 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
+defineOptions({ inheritAttrs: false })
+
 const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
 
 void props.preview
 
-const searchText = ref('')
+const searchText = ref<string | null>(null)
 const showDropdown = ref(false)
 const highlightedIndex = ref(-1)
 
-const filteredOptions = computed<FormValueOption[]>(() => {
-  const options = props.field.values ?? []
-  if (!searchText.value) {
-    return options
+function getOptions(): FormValueOption[] {
+  return props.field.values ?? []
+}
+
+function answerFor(text: string): string[] {
+  if (text === '') {
+    return []
   }
-  return options.filter(
-    (opt) =>
-      opt.label.toLowerCase().includes(searchText.value.toLowerCase()) ||
-      opt.value.toLowerCase().includes(searchText.value.toLowerCase()),
+  const match = getOptions().find((opt) => opt.label.toLowerCase() === text.toLowerCase())
+  if (match) {
+    return [match.value]
+  }
+  return props.field.requireValidOption ? [] : [text]
+}
+
+function labelFor(value: string): string {
+  return getOptions().find((opt) => opt.value === value)?.label ?? value
+}
+
+const displayText = computed(() => searchText.value ?? labelFor(props.modelValue[0] ?? ''))
+
+const invalid = computed(() => {
+  const text = searchText.value ?? ''
+  return text !== '' && answerFor(text).length === 0
+})
+
+const filteredOptions = computed<FormValueOption[]>(() => {
+  const query = (searchText.value ?? '').toLowerCase()
+  if (!query) {
+    return getOptions()
+  }
+  return getOptions().filter(
+    (opt) => opt.label.toLowerCase().includes(query) || opt.value.toLowerCase().includes(query),
   )
 })
+
+watch(
+  () => props.modelValue,
+  (answers) => {
+    if (searchText.value !== null && answerFor(searchText.value)[0] !== answers[0]) {
+      searchText.value = null
+    }
+  },
+)
 
 function onInput(event: Event): void {
   searchText.value = (event.target as HTMLInputElement).value
   showDropdown.value = true
   highlightedIndex.value = -1
+  emit('update:modelValue', answerFor(searchText.value))
 }
 
 function selectOption(option: FormValueOption): void {
-  searchText.value = option.label
+  searchText.value = null
   showDropdown.value = false
   emit('update:modelValue', [option.value])
 }
@@ -51,6 +87,7 @@ function onFocus(): void {
 }
 
 function onBlur(): void {
+  searchText.value = null
   setTimeout(() => {
     showDropdown.value = false
   }, 200)
@@ -92,11 +129,13 @@ function onKeydown(event: KeyboardEvent): void {
       type="text"
       :class="props.field.className"
       :name="props.field.name"
-      :value="searchText || (props.modelValue[0] ?? '')"
+      :value="displayText"
+      :aria-invalid="invalid || undefined"
       :placeholder="props.field.placeholder"
       :required="props.field.required"
       :disabled="props.disabled"
       data-qa="autocomplete-input"
+      v-bind="$attrs"
       @input="onInput"
       @focus="onFocus"
       @blur="onBlur"
@@ -127,10 +166,12 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 input {
+  box-sizing: border-box;
   width: 100%;
   padding: 7px 10px;
   font: inherit;
   font-size: 13px;
+  line-height: 20px;
   background: var(--surface, #fff);
   color: var(--ink, #111);
   border: 1px solid var(--line-2, #d3cec1);
@@ -139,7 +180,8 @@ input {
 }
 
 input:focus {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   border-color: var(--ink, #111);
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }

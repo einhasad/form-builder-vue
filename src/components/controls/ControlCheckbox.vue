@@ -14,6 +14,8 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
+defineOptions({ inheritAttrs: false })
+
 const emit = defineEmits<(e: 'update:modelValue', value: string[]) => void>()
 
 void props.preview
@@ -43,6 +45,7 @@ function onChange(event: Event): void {
         :disabled="props.disabled"
         :class="{ toggle: props.field.toggle }"
         data-qa="checkbox-single-input"
+        v-bind="$attrs"
         @change="onChange"
       >
       <span
@@ -111,7 +114,8 @@ function onChange(event: Event): void {
 }
 
 .checkbox-single input[type="checkbox"].toggle:focus-visible {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }
 

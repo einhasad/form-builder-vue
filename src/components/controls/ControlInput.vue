@@ -43,10 +43,12 @@ function onInput(event: Event): void {
 
 <style scoped>
 input {
+  box-sizing: border-box;
   width: 100%;
   padding: 7px 10px;
   font: inherit;
   font-size: 13px;
+  line-height: 20px;
   background: var(--surface, #fff);
   color: var(--ink, #111);
   border: 1px solid var(--line-2, #d3cec1);
@@ -55,7 +57,8 @@ input {
 }
 
 input:focus {
-  outline: none;
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
   border-color: var(--ink, #111);
   box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }

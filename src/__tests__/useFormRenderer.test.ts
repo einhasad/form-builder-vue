@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { useFormRenderer } from '../composables/useFormRenderer'
+import { useI18n } from '../composables/useI18n'
 import { FieldType } from '../types/field-types'
 import type { FormDataField } from '../types/form-data'
 
@@ -84,7 +85,7 @@ describe('useFormRenderer', () => {
     const result = renderer.validate([textField])
     expect(result).toBe(false)
     expect(renderer.errors.value['name-field']).toHaveLength(1)
-    expect(renderer.errors.value['name-field'][0]).toContain('required')
+    expect(renderer.errors.value['name-field']?.[0]).toContain('required')
   })
 
   it('validate returns false for empty string answer', () => {
@@ -126,8 +127,8 @@ describe('useFormRenderer', () => {
 
     const merged = renderer.mergeUserData([textField, numberField])
 
-    expect(merged[0].userData).toEqual(['John'])
-    expect(merged[1].userData).toEqual(['25'])
+    expect(merged[0]?.userData).toEqual(['John'])
+    expect(merged[1]?.userData).toEqual(['25'])
   })
 
   it('mergeUserData handles fields without name', () => {
@@ -141,7 +142,7 @@ describe('useFormRenderer', () => {
 
     const merged = renderer.mergeUserData([headerField])
     expect(merged[0]).toEqual(headerField)
-    expect(merged[0].userData).toBeUndefined()
+    expect(merged[0]?.userData).toBeUndefined()
   })
 
   it('setAnswer overwrites previous value', () => {
@@ -183,3 +184,64 @@ describe('useFormRenderer', () => {
     expect(renderer.localData.value).toEqual({ test: ['val'] })
   })
 })
+
+describe('useFormRenderer validate rules', () => {
+  function errorsFor(field: FormDataField, answer: string[]): string[] | undefined {
+    const renderer = useFormRenderer()
+    renderer.setAnswers({ f: answer })
+    renderer.validate([{ ...field, name: 'f' }])
+    return renderer.errors.value['f']
+  }
+
+  const age: FormDataField = { type: FieldType.Number, label: 'Age', min: '18', max: '99' }
+
+  it('rejects numbers outside min and max', () => {
+    expect(errorsFor(age, ['17'])).toEqual(['Age must be at least 18'])
+    expect(errorsFor(age, ['100'])).toEqual(['Age must be at most 99'])
+    expect(errorsFor(age, ['18'])).toBeUndefined()
+    expect(errorsFor(age, ['99'])).toBeUndefined()
+  })
+
+  it('ignores empty min and max', () => {
+    expect(errorsFor({ ...age, min: '', max: '' }, ['5000'])).toBeUndefined()
+    expect(errorsFor({ type: FieldType.Number, label: 'Any' }, ['-5'])).toBeUndefined()
+  })
+
+  it('rejects text longer than maxlength', () => {
+    const nick: FormDataField = { type: FieldType.Text, label: 'Nick', maxlength: '3' }
+
+    expect(errorsFor(nick, ['abcd'])).toEqual(['Nick must be at most 3 characters'])
+    expect(errorsFor(nick, ['abc'])).toBeUndefined()
+  })
+
+  it('does not apply value rules to unanswered optional fields', () => {
+    expect(errorsFor(age, [])).toBeUndefined()
+    expect(errorsFor(age, [''])).toBeUndefined()
+  })
+})
+
+describe('useFormRenderer validation messages', () => {
+  const nick: FormDataField = { type: FieldType.Text, label: 'Nick', name: 'nick', required: true, maxlength: '2' }
+
+  it('reads message templates through the given translator', () => {
+    const { t, addMessages, setLocale } = useI18n()
+    addMessages('de', { validationRequired: '{label} ist erforderlich', validationMaxlength: '{label}: max {maxlength}' })
+    setLocale('de')
+    const renderer = useFormRenderer(t)
+
+    renderer.validate([nick])
+    expect(renderer.errors.value['nick']).toEqual(['Nick ist erforderlich'])
+
+    renderer.setAnswers({ nick: ['abc'] })
+    renderer.validate([nick])
+    expect(renderer.errors.value['nick']).toEqual(['Nick: max 2'])
+  })
+
+  it('keeps unknown placeholders as written', () => {
+    const renderer = useFormRenderer(() => '{label} {unknown}')
+
+    renderer.validate([nick])
+    expect(renderer.errors.value['nick']).toEqual(['Nick {unknown}'])
+  })
+})
+

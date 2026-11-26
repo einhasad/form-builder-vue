@@ -33,7 +33,7 @@ describe('ControlInput', () => {
 
     await wrapper.find('[data-qa="control-input"]').setValue('hello')
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['hello'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['hello'])
   })
 })
 
@@ -60,7 +60,7 @@ describe('ControlSelect', () => {
 
     await wrapper.find('select').setValue('red')
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['red'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['red'])
   })
 
   it('renders placeholder option when set', () => {
@@ -142,13 +142,13 @@ describe('ControlCheckboxGroup', () => {
 
     // Check the first checkbox
     const checkboxes = wrapper.findAll('[data-qa="checkbox-input"]')
-    await checkboxes[0].setValue(true)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['red'])
+    await checkboxes[0]?.setValue(true)
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['red'])
 
     // Check the second checkbox (from state with 'red' already checked)
     await wrapper.setProps({ modelValue: ['red'] })
-    await checkboxes[1].setValue(true)
-    expect(wrapper.emitted('update:modelValue')[1][0]).toEqual(['red', 'blue'])
+    await checkboxes[1]?.setValue(true)
+    expect(wrapper.emitted('update:modelValue')?.[1]?.[0]).toEqual(['red', 'blue'])
   })
 
   it('unchecks a previously checked option', async () => {
@@ -167,7 +167,7 @@ describe('ControlCheckboxGroup', () => {
     })
 
     await wrapper.find('[data-qa="checkbox-input"]').setValue(false)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual([])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([])
   })
 
   it('renders other option when enabled', async () => {
@@ -188,7 +188,8 @@ describe('ControlCheckboxGroup', () => {
 
     // Click other checkbox
     await wrapper.find('[data-qa="checkbox-other-input"]').setValue(true)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['other-colors'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([])
+    expect(wrapper.find('[data-qa="checkbox-other-text"]').exists()).toBe(true)
   })
 
   it('shows text input when other is checked', async () => {
@@ -202,13 +203,13 @@ describe('ControlCheckboxGroup', () => {
     }
 
     const wrapper = mount(ControlCheckboxGroup, {
-      props: { field, modelValue: ['other-colors'] },
+      props: { field, modelValue: ['Typed'] },
     })
 
     expect(wrapper.find('[data-qa="checkbox-other-text"]').exists()).toBe(true)
 
     await wrapper.find('[data-qa="checkbox-other-text"]').setValue('Custom value')
-    // The onOtherInput updates otherValue ref
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['Custom value'])
   })
 
   it('renders inline class when inline is true', () => {
@@ -249,8 +250,8 @@ describe('ControlRadioGroup', () => {
     expect(wrapper.findAll('[data-qa="radio-input"]')).toHaveLength(2)
 
     const radios = wrapper.findAll('[data-qa="radio-input"]')
-    await radios[0].setValue(true)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['sm'])
+    await radios[0]?.setValue(true)
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['sm'])
   })
 
   it('renders other option when enabled', async () => {
@@ -270,7 +271,8 @@ describe('ControlRadioGroup', () => {
     expect(wrapper.find('[data-qa="radio-other"]').exists()).toBe(true)
 
     await wrapper.find('[data-qa="radio-other-input"]').setValue(true)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['other-size'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([])
+    expect(wrapper.find('[data-qa="radio-other-text"]').exists()).toBe(true)
   })
 
   it('shows text input when other radio is selected', async () => {
@@ -284,12 +286,13 @@ describe('ControlRadioGroup', () => {
     }
 
     const wrapper = mount(ControlRadioGroup, {
-      props: { field, modelValue: ['other-size'] },
+      props: { field, modelValue: ['Typed'] },
     })
 
     expect(wrapper.find('[data-qa="radio-other-text"]').exists()).toBe(true)
 
     await wrapper.find('[data-qa="radio-other-text"]').setValue('Custom')
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['Custom'])
   })
 
   it('renders inline class when inline is true', () => {
@@ -356,10 +359,10 @@ describe('ControlAutocomplete', () => {
 
     await wrapper.find('[data-qa="autocomplete-input"]').trigger('focus')
     const options = wrapper.findAll('[data-qa="autocomplete-option"]')
-    await options[0].trigger('mousedown')
+    await options[0]?.trigger('mousedown')
 
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['ny'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['ny'])
 
     wrapper.unmount()
   })
@@ -387,7 +390,7 @@ describe('ControlAutocomplete', () => {
 
     const options = wrapper.findAll('[data-qa="autocomplete-option"]')
     expect(options).toHaveLength(1)
-    expect(options[0].text()).toBe('New York')
+    expect(options[0]?.text()).toBe('New York')
 
     wrapper.unmount()
   })
@@ -420,7 +423,7 @@ describe('ControlAutocomplete', () => {
     // Enter to select
     await input.trigger('keydown', { key: 'Enter' })
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['ny'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['ny'])
 
     wrapper.unmount()
   })
@@ -564,7 +567,7 @@ describe('ControlAutocomplete', () => {
 })
 
 describe('ControlButton', () => {
-  it('renders button and emits on click', async () => {
+  it('renders button and does not emit an answer on click', async () => {
     const field: FormDataField = {
       type: FieldType.Button,
       label: 'Submit',
@@ -583,25 +586,7 @@ describe('ControlButton', () => {
     expect(wrapper.find('[data-qa="control-button"]').text()).toBe('Submit')
 
     await wrapper.find('[data-qa="control-button"]').trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['clicked'])
-  })
-
-  it('uses field value when available', async () => {
-    const field: FormDataField = {
-      type: FieldType.Button,
-      label: 'Click',
-      name: 'btn',
-      value: 'custom-value',
-      access: false,
-    }
-
-    const wrapper = mount(ControlButton, {
-      props: { field, modelValue: [] },
-    })
-
-    await wrapper.find('[data-qa="control-button"]').trigger('click')
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['custom-value'])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
   it('applies correct style classes', () => {
@@ -707,7 +692,7 @@ describe('ControlTextarea', () => {
     await wrapper.find('textarea').setValue('Hello world')
 
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['Hello world'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['Hello world'])
   })
 })
 
@@ -865,7 +850,7 @@ describe('ControlFile onChange', () => {
     await fileInput.trigger('change')
 
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['test.txt'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['test.txt'])
   })
 
   it('does not emit when no files selected', async () => {
@@ -926,7 +911,7 @@ describe('ControlSelect multiple', () => {
     await select.trigger('change')
 
     expect(wrapper.emitted('update:modelValue')).toBeTruthy()
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual(['red', 'blue'])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['red', 'blue'])
   })
 })
 
@@ -966,7 +951,7 @@ describe('ControlButton style passthrough', () => {
 })
 
 describe('ControlRadioGroup other text', () => {
-  it('updates otherValue on input', async () => {
+  it('emits the typed text on input', async () => {
     const field: FormDataField = {
       type: FieldType.RadioGroup,
       label: 'Size',
@@ -977,14 +962,13 @@ describe('ControlRadioGroup other text', () => {
     }
 
     const wrapper = mount(ControlRadioGroup, {
-      props: { field, modelValue: ['other-size'] },
+      props: { field, modelValue: ['Typed'] },
     })
 
     const textInput = wrapper.find('[data-qa="radio-other-text"]')
     await textInput.setValue('Custom answer')
 
-    // Value is stored in local ref, no emit
-    expect(textInput.exists()).toBe(true)
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['Custom answer'])
   })
 })
 
@@ -1000,11 +984,11 @@ describe('ControlCheckboxGroup uncheck other', () => {
     }
 
     const wrapper = mount(ControlCheckboxGroup, {
-      props: { field, modelValue: ['other-colors'] },
+      props: { field, modelValue: ['Typed'] },
     })
 
     await wrapper.find('[data-qa="checkbox-other-input"]').setValue(false)
-    expect(wrapper.emitted('update:modelValue')[0][0]).toEqual([])
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([])
   })
 })
 
@@ -1042,7 +1026,7 @@ describe('ControlRadioGroup undefined props', () => {
     expect(wrapper.findAll('[data-qa="radio-input"]')).toHaveLength(0)
   })
 
-  it('uses unknown when name is undefined for other key', async () => {
+  it('selects "Other" when name is undefined', async () => {
     const field: FormDataField = {
       type: FieldType.RadioGroup,
       label: 'Size',
@@ -1059,7 +1043,7 @@ describe('ControlRadioGroup undefined props', () => {
     await otherInput.setValue(true)
     const emitted = wrapper.emitted('update:modelValue')
     expect(emitted).toBeTruthy()
-    expect(emitted?.[0]?.[0]).toEqual(['other-unknown'])
+    expect(emitted?.[0]?.[0]).toEqual([])
   })
 })
 
@@ -1079,7 +1063,7 @@ describe('ControlCheckboxGroup undefined props', () => {
     expect(wrapper.findAll('[data-qa="checkbox-input"]')).toHaveLength(0)
   })
 
-  it('uses unknown when name is undefined for other key', async () => {
+  it('selects "Other" when name is undefined', async () => {
     const field: FormDataField = {
       type: FieldType.CheckboxGroup,
       label: 'Colors',
@@ -1096,7 +1080,7 @@ describe('ControlCheckboxGroup undefined props', () => {
     await otherInput.setValue(true)
     const emitted = wrapper.emitted('update:modelValue')
     expect(emitted).toBeTruthy()
-    expect(emitted?.[0]?.[0]).toEqual(['other-unknown'])
+    expect(emitted?.[0]?.[0]).toEqual([])
   })
 
   it('sets required attribute when required and modelValue is empty', () => {

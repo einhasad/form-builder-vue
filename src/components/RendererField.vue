@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, type DefineComponent } from 'vue'
+import { computed, useId, useTemplateRef, type ComponentPublicInstance, type DefineComponent } from 'vue'
 import type { FormDataField } from '../types/form-data'
+import { FieldType } from '../types/field-types'
 import { useBuilderRegistry } from '../state/builderRegistry'
 
 /** The field definition. */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** The field definition. */
   field: FormDataField
   /** Current answer value(s). */
   modelValue: string[]
   /** Whether all controls are disabled. */
   disabled: boolean
-}>()
+  /** Validation messages shown under the control. */
+  errors?: string[]
+}>(), {
+  errors: () => [],
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string[]): void
@@ -35,6 +40,54 @@ const fieldLayout = computed(() => {
   return def?.layout ?? 'default'
 })
 
+const GROUP_TYPES = new Set<string>([FieldType.CheckboxGroup, FieldType.RadioGroup])
+
+const controlId = useId()
+const labelId = `${controlId}-label`
+const helpId = `${controlId}-help`
+const errorId = `${controlId}-error`
+const control = useTemplateRef<ComponentPublicInstance>('control')
+
+const isGroup = computed(() => GROUP_TYPES.has(props.field.type))
+const showLabel = computed(() => fieldLayout.value === 'default' && Boolean(props.field.label))
+const errorText = computed(() => props.errors.join(' '))
+
+const describedBy = computed(() => {
+  const ids = [
+    showLabel.value && props.field.description ? helpId : '',
+    errorText.value ? errorId : '',
+  ].filter(Boolean)
+  return ids.length > 0 ? ids.join(' ') : undefined
+})
+
+function definedAttrs(attrs: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(attrs).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
+}
+
+const a11yAttrs = computed(() => definedAttrs({
+  'aria-describedby': describedBy.value,
+  'aria-invalid': errorText.value ? 'true' : undefined,
+}))
+
+const groupAttrs = computed(() => (isGroup.value
+  ? { role: 'group', ...definedAttrs({ 'aria-labelledby': showLabel.value ? labelId : undefined }), ...a11yAttrs.value }
+  : {}))
+
+const controlAttrs = computed(() => (isGroup.value
+  ? {}
+  : { ...definedAttrs({ id: showLabel.value ? controlId : undefined }), ...a11yAttrs.value }))
+
+function controlElement(): HTMLElement | undefined {
+  return control.value?.$el as HTMLElement | undefined
+}
+
+defineExpose({
+  fieldName: computed(() => props.field.name),
+  controlElement,
+})
+
 function onUpdateValue(value: string[]): void {
   emit('update:modelValue', value)
   if (props.field.name) {
@@ -51,22 +104,29 @@ defineSlots<{
   <div
     v-if="fieldLayout !== 'hidden'"
     class="renderer-field"
-    :class="props.field.className"
     data-qa="renderer-field"
+    v-bind="groupAttrs"
   >
-    <label
-      v-if="fieldLayout === 'default' && props.field.label"
-      class="field-label"
-      data-qa="field-label"
+    <div
+      v-if="showLabel"
+      class="field-label-row"
     >
-      {{ props.field.label }}
-      <span
-        v-if="props.field.required"
-        class="required-marker"
-        data-qa="required-marker"
+      <component
+        :is="isGroup ? 'span' : 'label'"
+        :id="labelId"
+        :for="isGroup ? undefined : controlId"
+        class="field-label"
+        data-qa="field-label"
       >
-        *
-      </span>
+        {{ props.field.label }}
+        <span
+          v-if="props.field.required"
+          class="required-marker"
+          data-qa="required-marker"
+        >
+          *
+        </span>
+      </component>
       <span
         v-if="props.field.description"
         class="help-wrap"
@@ -76,17 +136,17 @@ defineSlots<{
           class="help-icon"
           :aria-label="props.field.description"
           data-qa="field-help-icon"
-          tabindex="-1"
         >
           ?
         </button>
         <span
+          :id="helpId"
           class="help-tip"
           role="tooltip"
           data-qa="field-help-tip"
         >{{ props.field.description }}</span>
       </span>
-    </label>
+    </div>
 
     <slot
       :field="props.field"
@@ -96,17 +156,29 @@ defineSlots<{
       <component
         :is="controlComponent"
         v-if="controlComponent"
+        ref="control"
+        v-bind="controlAttrs"
         :field="props.field"
         :model-value="props.modelValue"
         :disabled="props.disabled"
         @update:model-value="onUpdateValue"
       />
     </slot>
+
+    <div
+      v-if="errorText"
+      :id="errorId"
+      class="field-error"
+      data-qa="field-error"
+    >
+      {{ errorText }}
+    </div>
   </div>
 
   <component
     :is="controlComponent"
     v-else-if="controlComponent"
+    ref="control"
     :field="props.field"
     :model-value="props.modelValue"
     :disabled="props.disabled"
@@ -119,23 +191,32 @@ defineSlots<{
   margin-bottom: 16px;
 }
 
-.field-label {
-  display: block;
-  font-weight: 500;
+.field-label-row {
+  display: flex;
+  align-items: center;
   margin-bottom: 4px;
-  color: #333;
+}
+
+.field-label {
+  font-weight: 500;
+  color: var(--ink, #333);
+}
+
+.field-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger, #ff4d4f);
 }
 
 .required-marker {
-  color: #ff4d4f;
+  color: var(--danger, #ff4d4f);
   margin-left: 2px;
 }
 
 .help-wrap {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
   margin-left: 6px;
-  vertical-align: middle;
 }
 
 .help-icon {
@@ -147,8 +228,8 @@ defineSlots<{
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: #1e2329;
-  color: #fff;
+  background: var(--ink-2, #1e2329);
+  color: var(--surface, #fff);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -156,7 +237,13 @@ defineSlots<{
 }
 
 .help-icon:hover {
-  background: #000;
+  background: var(--ink, #000);
+}
+
+.help-icon:focus-visible {
+  outline: 2px solid var(--fb-focus-ring, var(--ink, #111));
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(255, 200, 51, 0.35);
 }
 
 .help-tip {
@@ -168,8 +255,8 @@ defineSlots<{
   max-width: 240px;
   min-width: 120px;
   padding: 7px 10px;
-  background: #1e2329;
-  color: #fff;
+  background: var(--ink-2, #1e2329);
+  color: var(--surface, #fff);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.4;
@@ -188,7 +275,7 @@ defineSlots<{
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-bottom-color: #1e2329;
+  border-bottom-color: var(--ink-2, #1e2329);
 }
 
 .help-wrap:hover .help-tip,
